@@ -59,6 +59,7 @@ type Store struct {
 	DataExpire         int64  `yaml:"DataExpire" default:"604800"`        // Trans data will expire in 7 days. only for redis/boltdb.
 	FinishedDataExpire int64  `yaml:"FinishedDataExpire" default:"86400"` // finished Trans data will expire in 1 days. only for redis.
 	RedisPrefix        string `yaml:"RedisPrefix" default:"{a}"`          // Redis storage prefix. store data to only one slot in cluster
+	AerospikeNamespace string `yaml:"AerospikePrefix" default:"test"`     // Use the temp namespace
 	TransGlobalTable   string `yaml:"TransGlobalTable" default:"dtm.trans_global"`
 	TransBranchOpTable string `yaml:"TransBranchOpTable" default:"dtm.trans_branch_op"`
 }

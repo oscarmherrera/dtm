@@ -5,6 +5,7 @@ go 1.16
 require (
 	bou.ke/monkey v1.0.2
 	github.com/BurntSushi/toml v0.4.1 // indirect
+	github.com/aerospike/aerospike-client-go/v5 v5.8.0
 	github.com/dtm-labs/dtmdriver v0.0.3
 	github.com/dtm-labs/dtmdriver-gozero v0.0.4
 	github.com/dtm-labs/dtmdriver-http v1.2.2
@@ -22,6 +23,8 @@ require (
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/onsi/gomega v1.16.0
 	github.com/prometheus/client_golang v1.11.0
+	github.com/rs/xid v1.2.1
+	github.com/silenceper/pool v1.0.0
 	github.com/stretchr/testify v1.7.1
 	github.com/ugorji/go v1.2.7 // indirect
 	go.etcd.io/bbolt v1.3.6
