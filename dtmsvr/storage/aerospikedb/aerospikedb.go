@@ -15,14 +15,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis/v8"
-
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
 	"github.com/dtm-labs/dtm/dtmsvr/config"
 	"github.com/dtm-labs/dtm/dtmsvr/storage"
 	"github.com/dtm-labs/dtm/dtmutil"
 )
+
+var TransactionManagerNamespace string = "test"
+var TransactionManagerSet string = "globaltx_astm"
+var TransactionSet string = "tx_astm"
 
 // TODO: optimize this, it's very strange to use pointer to dtmutil.Config
 var conf = &config.Config
@@ -42,8 +44,37 @@ func InitializeAerospikeStore(store config.Store) {
 	pooler.InitializeConnectionPool(store)
 }
 
+func GetTransactionGlobalStore(gid string) *storage.TransGlobalStore {
+	key, err := as.NewKey(TransactionManagerNamespace, TransactionManagerSet, gid)
+	if err != nil {
+		dtmimp.E2P(err)
+	}
+	policy := &as.BasePolicy{
+		PredExp:                           nil,
+		FilterExpression:                  nil,
+		ReadModeAP:                        1,
+		ReadModeSC:                        0,
+		TotalTimeout:                      100 * time.Millisecond,
+		SocketTimeout:                     0,
+		MaxRetries:                        5,
+		SleepBetweenRetries:               0,
+		SleepMultiplier:                   0,
+		ExitFastOnExhaustedConnectionPool: false,
+		SendKey:                           false,
+		UseCompression:                    false,
+		ReplicaPolicy:                     0,
+	}
+
+	r, err := aerospikeGet().Get(policy, key)
+	dtmimp.E2P(err)
+
+	trans := &storage.TransGlobalStore{}
+	dtmimp.MustUnmarshalString(r, trans)
+}
+
 // Ping execs ping cmd to redis
 func (s *Store) Ping() error {
+
 	if aerospikeGet().IsConnected() == true {
 		return nil
 	}
@@ -69,6 +100,9 @@ func (s *Store) PopulateData(skipDrop bool) {
 // FindTransGlobalStore finds GlobalTrans data by gid
 func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 	logger.Debugf("calling FindTransGlobalStore: %s", gid)
+
+	// Let's go get the key in the TransactionGlobalStore
+
 	r, err := redisGet().Get(ctx, conf.Store.RedisPrefix+"_g_"+gid).Result()
 	if err == redis.Nil {
 		return nil
