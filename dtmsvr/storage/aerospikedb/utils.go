@@ -3,9 +3,7 @@ package aerospikedb
 import (
 	"errors"
 	"fmt"
-	as "github.com/aerospike/aerospike-client-go/v5"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
-	"github.com/dtm-labs/dtm/dtmcli/logger"
 	"github.com/rs/xid"
 	"go.uber.org/zap"
 	"net"
@@ -54,33 +52,33 @@ func DecodeKey(keyValue []byte) (*globalTxId, error) {
 	return gTxId, nil
 }
 
-func GetConnection(asdb *Store) (*as.Client, error) {
-	var connected bool
-	var client *as.Client
-
-	connected = false
-
-	for _, node := range *asdb.endpoints {
-
-		c, err := as.NewClient(node.IP.String(), node.Port)
-		if err != nil {
-			logger.Warnf("error connecting to node: %s", err)
-		} else {
-			if c.IsConnected() {
-				logger.Infof("connected to node IP: %s, Port: %d", node.IP.String(), node.Port)
-				connected = true
-				client = c
-				break
-			}
-		}
-	}
-
-	if !connected {
-		return nil, errors.New("unable to connected to any aerospike database server")
-	}
-
-	return client, nil
-}
+//func GetConnection(asdb *Store) (*as.Client, error) {
+//	var connected bool
+//	var client *as.Client
+//
+//	connected = false
+//
+//	for _, node := range *asdb.endpoints {
+//
+//		c, err := as.NewClient(node.IP.String(), node.Port)
+//		if err != nil {
+//			logger.Warnf("error connecting to node: %s", err)
+//		} else {
+//			if c.IsConnected() {
+//				logger.Infof("connected to node IP: %s, Port: %d", node.IP.String(), node.Port)
+//				connected = true
+//				client = c
+//				break
+//			}
+//		}
+//	}
+//
+//	if !connected {
+//		return nil, errors.New("unable to connected to any aerospike database server")
+//	}
+//
+//	return client, nil
+//}
 
 type Node struct {
 	net.IP

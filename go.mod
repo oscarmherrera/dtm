@@ -1,6 +1,6 @@
 module github.com/dtm-labs/dtm
 
-go 1.16
+go 1.17
 
 require (
 	bou.ke/monkey v1.0.2
@@ -42,6 +42,7 @@ require (
 // gotest.tools v2.2.0+incompatible
 )
 
+replace google.golang.org/grpc v1.46.2 => github.com/grpc/grpc-go v1.47.0
 // replace github.com/dtm-labs/dtmdriver v0.0.2 => /Users/wangxi/dtm/dtmdriver
 
 // replace github.com/dtm-labs/dtmdriver-http => /Users/wangxi/dtm/dtmdriver-http-nacos
