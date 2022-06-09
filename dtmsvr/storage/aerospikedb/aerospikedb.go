@@ -38,7 +38,10 @@ type Store struct {
 var connectionPools *pooler.ASConnectionPool
 
 func InitializeAerospikeStore(store config.Store) {
-	pooler.InitializeConnectionPool(store)
+	cp, err := pooler.InitializeConnectionPool(store)
+	dtmimp.E2P(err)
+	logger.Infof("Connection Pool initialized with connection depth: %d", cp.PoolDepth())
+	connectionPools = cp
 }
 
 // Ping execs ping cmd to redis
@@ -110,40 +113,6 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []string) (int, error) {
 	logger.Infof("Unimplemented, here is the data branches: %v with updates: %v", branches, updates)
 	return 0, nil // not implemented
-}
-
-type argList struct {
-	Keys []string      // 1 global trans, 2 branches, 3 indices, 4 status
-	List []interface{} // 1 redis prefix, 2 data expire
-}
-
-func newArgList() *argList {
-	a := &argList{}
-	return a.AppendRaw(conf.Store.RedisPrefix).AppendObject(conf.Store.DataExpire)
-}
-
-func (a *argList) AppendGid(gid string) *argList {
-	a.Keys = append(a.Keys, conf.Store.RedisPrefix+"_g_"+gid)
-	a.Keys = append(a.Keys, conf.Store.RedisPrefix+"_b_"+gid)
-	a.Keys = append(a.Keys, conf.Store.RedisPrefix+"_u")
-	a.Keys = append(a.Keys, conf.Store.RedisPrefix+"_s_"+gid)
-	return a
-}
-
-func (a *argList) AppendRaw(v interface{}) *argList {
-	a.List = append(a.List, v)
-	return a
-}
-
-func (a *argList) AppendObject(v interface{}) *argList {
-	return a.AppendRaw(dtmimp.MustMarshalString(v))
-}
-
-func (a *argList) AppendBranches(branches []storage.TransBranchStore) *argList {
-	for _, b := range branches {
-		a.AppendRaw(dtmimp.MustMarshalString(b))
-	}
-	return a
 }
 
 // MaySaveNewTrans creates a new trans

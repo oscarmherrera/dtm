@@ -1,14 +1,8 @@
 package aerospikedb
 
 import (
-	"errors"
-	"fmt"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/rs/xid"
-	"go.uber.org/zap"
-	"net"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -79,42 +73,3 @@ func DecodeKey(keyValue []byte) (*globalTxId, error) {
 //
 //	return client, nil
 //}
-
-type Node struct {
-	net.IP
-	Port int
-}
-
-func (n Node) String() string {
-	return fmt.Sprintf("%s:%d", n.IP.String(), n.Port)
-}
-
-func ConvertIPStringToIpPort(logger *zap.Logger, ipStrs *[]string) (*[]Node, error) {
-	var nodes []Node
-
-	for _, ipString := range *ipStrs {
-		var node Node
-
-		ipInfo := strings.Split(ipString, ":")
-		ipAddr := net.ParseIP(ipInfo[0])
-		node.IP = ipAddr
-		if len(ipInfo) == 1 {
-			//We are going to use the default port
-			node.Port = 3000
-		} else {
-			port, err := strconv.Atoi(ipInfo[1])
-			if err != nil {
-				logger.Error("error invalid ip address port format", zap.Error(err), zap.String("ip_string", ipString))
-				continue
-			}
-			node.Port = port
-		}
-		nodes = append(nodes, node)
-
-	}
-	if len(nodes) == 0 {
-		return nil, errors.New("no valid array of node ips were configures '<ip addr:port>'")
-	}
-
-	return &nodes, nil
-}

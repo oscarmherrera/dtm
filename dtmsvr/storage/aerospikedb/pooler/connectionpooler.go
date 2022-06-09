@@ -2,7 +2,8 @@ package pooler
 
 import (
 	"errors"
-	"github.com/aerospike/aerospike-client-go/v5"
+	as "github.com/aerospike/aerospike-client-go/v5"
+	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
 	"github.com/dtm-labs/dtm/dtmsvr/config"
 	"github.com/silenceper/pool"
@@ -20,20 +21,32 @@ type ASConnectionPool struct {
 //var roundRobinASServers utils.RoundRobin
 
 func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
-	//factory
-	//servers = *asServers
-	//serversCount = len(servers)
-
-	var UseAerospikeAuth = true
-
-	asServers := []string{"one:port", "two:port", "three:port"} // Need to go and get all the aerospike servers from a seed server
-	var servers []*string
-	for _, server := range asServers {
-		s := server
-		servers = append(servers, &s)
+	var auth bool = false
+	if config.AerospikeAuth == "true" {
+		auth = true
 	}
 
-	roundRobinASServers, err := NewRoundRobin(servers...)
+	var UseAerospikeAuth = auth
+
+	seedServer := config.AerospikeSeedSrv
+	var asServer []string
+	asServer = append(asServer, seedServer)
+
+	node, err := ConvertIPStringToIpPort(&asServer)
+	dtmimp.E2P(err)
+
+	c, err := as.NewClient(node[0].IP.String(), node[0].Port)
+	dtmimp.E2P(err)
+
+	nodes := c.Cluster().GetNodes()
+	asServers := make([]*string, len(nodes))
+	for i, v := range nodes {
+
+		host := v.GetHost().String()
+		asServers[i] = &host
+	}
+
+	roundRobinASServers, err := NewRoundRobin(asServers...)
 	if err != nil {
 		logger.Errorf(err.Error())
 		return nil, err
@@ -51,20 +64,20 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 		if UseAerospikeAuth {
 
 			//authVars = config.ASAuth
-			policy := aerospike.NewClientPolicy()
+			policy := as.NewClientPolicy()
 			policy.MinConnectionsPerNode = 50
 			policy.User = config.User
 			policy.Password = config.Password
 			policy.Timeout = time.Duration(60 * time.Second)
-			return aerospike.NewClientWithPolicy(policy, parts[0], port)
+			return as.NewClientWithPolicy(policy, parts[0], port)
 		}
 
-		return aerospike.NewClient(parts[0], port)
+		return as.NewClient(parts[0], port)
 	}
 
 	//closeConn
 	closeConn := func(v interface{}) error {
-		v.(*aerospike.Client).Close()
+		v.(*as.Client).Close()
 		return nil
 	}
 	timeout := int(config.ConnMaxLifeTime)

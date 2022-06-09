@@ -40,7 +40,7 @@ var storeFactorys = map[string]StorageFactory{
 	},
 	"aerospike": &SingletonFactory{
 		creatorFunction: func() storage.Store {
-			aerospikedb.InitializeAerospike(conf.Store)
+			aerospikedb.InitializeAerospikeStore(conf.Store)
 			return &aerospikedb.Store{}
 		},
 	},

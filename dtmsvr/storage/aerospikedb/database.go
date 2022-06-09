@@ -22,27 +22,25 @@ const GLOBAL_SEQ = "GLOBAL_SEQ"
 func DropTableTransGlobal() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
-	queryPolicy := client.DefaultQueryPolicy
-	writePolicy := client.DefaultWritePolicy
+	defer connectionPools.Put(client)
 
-	statement := &as.Statement{
-		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
-		IndexName: "",
-		BinNames:  nil,
-		Filter:    nil,
-		TaskId:    0,
+	writePolicy := &as.WritePolicy{
+		RecordExistsAction: as.REPLACE,
+		DurableDelete:      true,
+		CommitLevel:        as.COMMIT_MASTER,
 	}
-	execTask, err := aerospikeGet().QueryExecute(queryPolicy, writePolicy, statement, as.DeleteOp())
-	dtmimp.E2P(err)
+	now := time.Now()
+	err := client.Truncate(writePolicy, SCHEMA, TRANS_GLOBAL, &now)
 
-	err = <-execTask.OnComplete()
 	dtmimp.E2P(err)
 }
 
 func GetSequenceTransGlobal() int64 {
 	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
 	// Create Key
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	var seq int64
 	sequenceKey, err := as.NewKey(SCHEMA, TRANS_GLOBAL, TRANS_GLOBAL_SEQ)
 	dtmimp.E2P(err)
@@ -52,8 +50,8 @@ func GetSequenceTransGlobal() int64 {
 	add := as.AddOp(seqBin)
 	get := as.GetBinOp(GLOBAL_SEQ)
 
-	writePolicy := aerospikeGet().DefaultWritePolicy
-	record, err := aerospikeGet().Operate(writePolicy, sequenceKey, add, get)
+	writePolicy := client.DefaultWritePolicy
+	record, err := client.Operate(writePolicy, sequenceKey, add, get)
 	dtmimp.E2P(err)
 	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
 	if ok == true {
@@ -67,22 +65,22 @@ type TEXT string
 type BYTEA string
 
 type TransGlobal struct {
-	id                 xid.ID
-	gid                [128]byte
-	trans_type         [45]byte
-	status             [45]byte
-	query_prepared     [128]byte
-	protocol           [45]byte
-	create_time        int64
-	update_time        int64
-	finish_time        int64
-	rollback_time      int64
-	options            [1024]byte
-	custom_data        [256]byte
-	next_cron_interval int
-	next_cron_time     int64
-	ext_data           TEXT
-	owner              [256]byte
+	id              xid.ID
+	gid             string //[128]byte
+	trans_type      string //[45]byte
+	status          string //[45]byte
+	query_prepared  string //[128]byte
+	protocol        string //[45]byte
+	create_time     int64
+	update_time     int64
+	finish_time     int64
+	rollback_time   int64
+	options         string //[1024]byte
+	custom_data     string //[256]byte
+	nxt_cron_intrvl int
+	next_cron_time  int64
+	ext_data        TEXT
+	owner           string //[256]byte
 }
 
 func getTransGlobalTableBins() *[]string {
@@ -98,7 +96,7 @@ func getTransGlobalTableBins() *[]string {
 		"rollback_time",
 		"options",
 		"custom_data",
-		"next_cron_interval",
+		"nxt_cron_intrvl",
 		"next_cron_time",
 		"owner",
 		"branches",
@@ -120,13 +118,16 @@ func CreateTransGlobalSet() {
 	//	rollback_time timestamp(0) with time zone DEFAULT NULL,
 	//	options varchar(1024) DEFAULT '',
 	//	custom_data varchar(256) DEFAULT '',
-	//	next_cron_interval int default null,
+	//	nxt_cron_intrvl int default null,
 	//next_cron_time timestamp(0) with time zone default null,
 	//owner varchar(128) not null default '',
 	//ext_data text,
 	//PRIMARY KEY (id),
 	//CONSTRAINT gid UNIQUE (gid)
 	//);
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	var trans TransGlobal
 
 	trans.id = xid.New()
@@ -134,58 +135,63 @@ func CreateTransGlobalSet() {
 	dtmimp.E2P(err)
 
 	cdtStatusNextCronTime := map[string]interface{}{
-		"status":         &trans.status,
-		"next_cron_time": &trans.next_cron_time,
+		"status":         trans.status,
+		"next_cron_time": trans.next_cron_time,
 	}
 
 	branches := []string{}
 
-	var bins as.BinMap
-	bins["gid"] = &trans.gid
-	bins["trans_type"] = &trans.trans_type
-	bins["status"] = &trans.status
-	bins["query_prepared"] = &trans.query_prepared
-	bins["protocol"] = &trans.protocol
-	bins["create_time"] = &trans.create_time
-	bins["update_time"] = &trans.update_time
-	bins["finish_time"] = &trans.finish_time
-	bins["rollback_time"] = &trans.rollback_time
-	bins["options"] = &trans.options
-	bins["custom_data"] = &trans.custom_data
-	bins["next_cron_interval"] = &trans.next_cron_interval
-	bins["next_cron_time"] = &trans.next_cron_time
-	bins["owner"] = &trans.owner
-	bins["branches"] = &branches
-	bins["status_nxt_ctime"] = &cdtStatusNextCronTime
+	bins := as.BinMap{
+		"gid":             trans.gid,
+		"trans_type":      trans.trans_type,
+		"status":          trans.status,
+		"query_prepared":  trans.query_prepared,
+		"protocol":        trans.protocol,
+		"create_time":     trans.create_time,
+		"update_time":     trans.update_time,
+		"finish_time":     trans.finish_time,
+		"rollback_time":   trans.rollback_time,
+		"options":         trans.options,
+		"custom_data":     trans.custom_data,
+		"next_cron_intvl": trans.nxt_cron_intrvl,
+		"next_cron_time":  trans.next_cron_time,
+		"owner":           trans.owner,
+		"branches":        branches,
+		"st_nxt_ctime":    cdtStatusNextCronTime,
+	}
 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
 	policy.TotalTimeout = 200 * time.Millisecond
+	policy.RecordExistsAction = as.REPLACE
 
-	err = aerospikeGet().Put(policy, key, bins)
+	err = client.Put(policy, key, bins)
 	dtmimp.E2P(err)
 
 	//create index if not EXISTS gid on dtm.trans_global(gid);
-	indexTask, err := aerospikeGet().CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXM_GID", "gid", as.STRING)
+	indexTask, err := client.CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXM_GID", "gid", as.STRING)
 	dtmimp.E2P(err)
 
 	Idxerr := <-indexTask.OnComplete()
 	dtmimp.E2P(Idxerr)
 
 	//create index if not EXISTS owner on dtm.trans_global(owner);
-	indexTask1, err := aerospikeGet().CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXM_OWNER", "owner", as.STRING)
+	indexTask1, err := client.CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXM_OWNER", "owner", as.STRING)
 	dtmimp.E2P(err)
 
 	Idxerr1 := <-indexTask1.OnComplete()
 	dtmimp.E2P(Idxerr1)
 
 	//create index if not EXISTS status_next_cron_time on dtm.trans_global (status, next_cron_time);
-	indexTask2, err := aerospikeGet().CreateComplexIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "STATUS_NXT_CTIME", "status_nxt_ctime", as.STRING, as.ICT_MAPVALUES)
+	indexTask2, err := client.CreateComplexIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "st_nxt_ctime", "st_nxt_ctime", as.STRING, as.ICT_MAPVALUES)
 	Idxerr2 := <-indexTask2.OnComplete()
 	dtmimp.E2P(Idxerr2)
 }
 
 func NewTransGlobal(global *storage.TransGlobalStore, branches *[]string) error {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	var trans TransGlobal
 
 	trans.id = xid.New()
@@ -205,14 +211,14 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]string) error 
 	bins["status"] = &global.Status
 	bins["create_time"] = &now
 	bins["next_cron_time"] = &next_cron_time
-	bins["status_nxt_ctime"] = &cdtStatusNextCronTime
+	bins["st_nxt_ctime"] = &cdtStatusNextCronTime
 	bins["branches"] = branches
 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
 	policy.TotalTimeout = 200 * time.Millisecond
 
-	err = aerospikeGet().Put(policy, key, bins)
+	err = client.Put(policy, key, bins)
 	if err != nil {
 		return err
 	}
@@ -221,6 +227,9 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]string) error 
 }
 
 func CheckTransGlobalTableForGID(gid string) bool {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewQueryPolicy()
 
 	filter := as.NewEqualFilter("gid", gid)
@@ -234,7 +243,7 @@ func CheckTransGlobalTableForGID(gid string) bool {
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	if len(rs.Results()) > 0 {
@@ -245,6 +254,9 @@ func CheckTransGlobalTableForGID(gid string) bool {
 }
 
 func GetTransGlobal(gid string) *string {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewQueryPolicy()
 
 	filter := as.NewEqualFilter("gid", gid)
@@ -259,7 +271,7 @@ func GetTransGlobal(gid string) *string {
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	if len(rs.Results()) != 1 {
@@ -285,6 +297,9 @@ func GetTransGlobal(gid string) *string {
 }
 
 func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewQueryPolicy()
 
 	filter := as.NewEqualFilter("gid", global.Gid)
@@ -299,7 +314,7 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	if len(rs.Results()) != 1 {
@@ -335,18 +350,21 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 				RespondPerEachOp:   false,
 				DurableDelete:      true,
 			}
-			err = aerospikeGet().Put(updatePolicy, id, bins)
+			err = client.Put(updatePolicy, id, bins)
 			dtmimp.E2P(err)
 		}
 	}
 }
 
 func ScanTransGlobalTable() *[]string {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewScanPolicy()
 	policy.MaxConcurrentNodes = 0
 	policy.IncludeBinData = true
 
-	recs, err := aerospikeGet().ScanAll(policy, SCHEMA, TRANS_GLOBAL)
+	recs, err := client.ScanAll(policy, SCHEMA, TRANS_GLOBAL)
 	dtmimp.E2P(err)
 
 	var results []string
@@ -368,6 +386,9 @@ func ScanTransGlobalTable() *[]string {
 }
 
 func LockOneGlobalTrans(expireIn time.Duration) *string {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	expired := time.Now().Add(expireIn).UnixNano()
 	owner := shortuuid.New()
 
@@ -394,7 +415,7 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 
 	if err != nil {
 		return nil
@@ -444,7 +465,7 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 		TaskId:    0,
 	}
 
-	rs2, err := aerospikeGet().Query(policy, statement)
+	rs2, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 	var firstGID string
 	for res := range rs2.Results() {
@@ -458,6 +479,9 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 }
 
 func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	timeoutTimestamp := time.Now().Add(timeout).UnixNano()
 
 	policy := as.NewQueryPolicy()
@@ -481,7 +505,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	updatePolicy := &as.WritePolicy{
@@ -503,7 +527,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 		id := res.Record.Key
 		bins := res.Record.Bins
 		bins["next_cron_time"] = dtmutil.GetNextTime(0).UnixNano()
-		err = aerospikeGet().Put(updatePolicy, id, bins)
+		err = client.Put(updatePolicy, id, bins)
 		if err != nil {
 			logger.Errorf("error updating global transaction id %v, bins:%v", id, bins)
 			dtmimp.E2P(err)
@@ -518,12 +542,14 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 }
 
 func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval int64, nextCronTime *time.Time) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
 
 	policy := as.NewQueryPolicy()
 
 	filter := as.NewEqualFilter("gid", global.Gid)
 
-	var bins = []string{"gid", "status", "update_time", "next_cron_time", "next_cron_interval"}
+	var bins = []string{"gid", "status", "update_time", "next_cron_time", "nxt_cron_intrvl"}
 	statement := &as.Statement{
 		Namespace: SCHEMA,
 		SetName:   TRANS_GLOBAL,
@@ -533,7 +559,7 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	updatePolicy := &as.WritePolicy{
@@ -555,9 +581,9 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 		resBin["status"] = global.Status
 		resBin["update_time"] = dtmutil.GetNextTime(0).UnixNano()
 		resBin["next_cron_time"] = nextCronTime.UnixNano()
-		resBin["next_cron_interval"] = nextCronInterval
+		resBin["nxt_cron_intrvl"] = nextCronInterval
 
-		err = aerospikeGet().Put(updatePolicy, id, resBin)
+		err = client.Put(updatePolicy, id, resBin)
 		if err != nil {
 			logger.Errorf("error updating global transaction id %v, bins:%v", id, resBin)
 			dtmimp.E2P(err)
@@ -582,6 +608,9 @@ type TransBranchOp struct {
 func GetSequenceTransBranchOp() int64 {
 	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
 	// Create Key
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	var seq int64
 	sequenceKey, err := as.NewKey(SCHEMA, TRANS_BRANCH_OP, TRANS_BRANCH_OP_SEQ)
 	dtmimp.E2P(err)
@@ -591,8 +620,8 @@ func GetSequenceTransBranchOp() int64 {
 	add := as.AddOp(seqBin)
 	get := as.GetBinOp(GLOBAL_SEQ)
 
-	writePolicy := aerospikeGet().DefaultWritePolicy
-	record, err := aerospikeGet().Operate(writePolicy, sequenceKey, add, get)
+	writePolicy := client.DefaultWritePolicy
+	record, err := client.Operate(writePolicy, sequenceKey, add, get)
 	dtmimp.E2P(err)
 	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
 	if ok == true {
@@ -605,22 +634,17 @@ func GetSequenceTransBranchOp() int64 {
 func DropTableTransBranchOp() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
-	queryPolicy := client.DefaultQueryPolicy
-	writePolicy := client.DefaultWritePolicy
+	defer connectionPools.Put(client)
 
-	statement := &as.Statement{
-		Namespace: SCHEMA,
-		SetName:   TRANS_BRANCH_OP,
-		IndexName: "",
-		BinNames:  nil,
-		Filter:    nil,
-		TaskId:    0,
+	writePolicy := &as.WritePolicy{
+		DurableDelete: true,
+		CommitLevel:   as.COMMIT_MASTER,
 	}
-	execTask, err := aerospikeGet().QueryExecute(queryPolicy, writePolicy, statement, as.DeleteOp())
+	now := time.Now()
+	err := client.Truncate(writePolicy, SCHEMA, TRANS_BRANCH_OP, &now)
+
 	dtmimp.E2P(err)
 
-	err = <-execTask.OnComplete()
-	dtmimp.E2P(err)
 }
 
 func CreateTransBranchOpSet() {
@@ -641,6 +665,10 @@ func CreateTransBranchOpSet() {
 	//PRIMARY KEY (id),
 	//CONSTRAINT gid_branch_uniq UNIQUE (gid, branch_id, op)
 	//);
+
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	var transBranch TransBranchOp
 
 	transBranch.id = xid.New()
@@ -670,22 +698,24 @@ func CreateTransBranchOpSet() {
 	policy.CommitLevel = as.COMMIT_ALL
 	policy.TotalTimeout = 200 * time.Millisecond
 
-	err = aerospikeGet().Put(policy, key, bins)
+	err = client.Put(policy, key, bins)
 	dtmimp.E2P(err)
 
 	//create index if not EXISTS gid on dtm.trans_global(gid);
-	indexTask, err := aerospikeGet().CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXMBRANCH_GID", "gid", as.STRING)
+	indexTask, err := client.CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXMBRANCH_GID", "gid", as.STRING)
 	dtmimp.E2P(err)
 	Idxerr := <-indexTask.OnComplete()
 	dtmimp.E2P(Idxerr)
 
 	//CONSTRAINT gid_branch_uniq UNIQUE (gid, branch_id, op)
-	indexTask1, err := aerospikeGet().CreateComplexIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "STATUS_NXT_CTIME", "status_nxt_ctime", as.STRING, as.ICT_MAPVALUES)
+	indexTask1, err := client.CreateComplexIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "st_nxt_ctime", "st_nxt_ctime", as.STRING, as.ICT_MAPVALUES)
 	Idxerr1 := <-indexTask1.OnComplete()
 	dtmimp.E2P(Idxerr1)
 }
 
 func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
@@ -715,7 +745,7 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 		bins["update_time"] = &branch.UpdateTime
 		bins["gid_branch_uniq"] = &gid_branch_uniq
 
-		err = aerospikeGet().Put(policy, key, bins)
+		err = client.Put(policy, key, bins)
 		if err != nil {
 			return err
 		}
@@ -724,6 +754,9 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 }
 
 func GetBranchs(gid string) *[]string {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewQueryPolicy()
 
 	filter := as.NewEqualFilter("gid", gid)
@@ -738,7 +771,7 @@ func GetBranchs(gid string) *[]string {
 		TaskId:    0,
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	var results []string
@@ -760,6 +793,9 @@ func GetBranchs(gid string) *[]string {
 }
 
 func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.TransBranchStore) error {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	policy := as.NewQueryPolicy()
 	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
 	statusExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal(status))
@@ -783,7 +819,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 		branchMap[branch.BranchID] = branch
 	}
 
-	rs, err := aerospikeGet().Query(policy, statement)
+	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
 	//var results []string
@@ -832,7 +868,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 				RespondPerEachOp:   false,
 				DurableDelete:      true,
 			}
-			err = aerospikeGet().Put(updatePolicy, id, bins)
+			err = client.Put(updatePolicy, id, bins)
 			if err != nil {
 				return err
 			}
