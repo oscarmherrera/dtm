@@ -13,11 +13,12 @@ import (
 )
 
 const SCHEMA = "test"
-const TRANS_GLOBAL = "trans_global"
-const TRANS_GLOBAL_SEQ = "trans_global_seq"
-const TRANS_BRANCH_OP = "trans_branch_op"
-const TRANS_BRANCH_OP_SEQ = "trans_branch_op_seq"
-const GLOBAL_SEQ = "GLOBAL_SEQ"
+
+//const TRANS_GLOBAL = "trans_global"
+//const TRANS_GLOBAL_SEQ = "trans_global_seq"
+//const TRANS_BRANCH_OP = "trans_branch_op"
+//const TRANS_BRANCH_OP_SEQ = "trans_branch_op_seq"
+//const GLOBAL_SEQ = "GLOBAL_SEQ"
 
 func DropTableTransGlobal() {
 	//drop table IF EXISTS dtm.trans_global;
@@ -30,36 +31,44 @@ func DropTableTransGlobal() {
 		CommitLevel:        as.COMMIT_MASTER,
 	}
 	now := time.Now()
-	err := client.Truncate(writePolicy, SCHEMA, TRANS_GLOBAL, &now)
-
+	err := client.Truncate(writePolicy, SCHEMA, TransactionManagerSet, &now)
 	dtmimp.E2P(err)
+	err = client.DropIndex(writePolicy, SCHEMA, TransactionManagerSet, "TXM_GID")
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, SCHEMA, TransactionManagerSet, "TXM_OWNER")
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, SCHEMA, TransactionManagerSet, "st_nxt_ctime")
+	dtmimp.E2P(err)
+
 }
 
-func GetSequenceTransGlobal() int64 {
-	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
-	// Create Key
-	client := aerospikeGet()
-	defer connectionPools.Put(client)
-
-	var seq int64
-	sequenceKey, err := as.NewKey(SCHEMA, TRANS_GLOBAL, TRANS_GLOBAL_SEQ)
-	dtmimp.E2P(err)
-
-	seqBin := as.NewBin(GLOBAL_SEQ, &seq)
-
-	add := as.AddOp(seqBin)
-	get := as.GetBinOp(GLOBAL_SEQ)
-
-	writePolicy := client.DefaultWritePolicy
-	record, err := client.Operate(writePolicy, sequenceKey, add, get)
-	dtmimp.E2P(err)
-	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
-	if ok == true {
-		return newSeq
-	}
-	return -1
-
-}
+//func GetSequenceTransGlobal() int64 {
+//	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
+//	// Create Key
+//	client := aerospikeGet()
+//	defer connectionPools.Put(client)
+//
+//	var seq int64
+//	sequenceKey, err := as.NewKey(SCHEMA, TransactionManagerSet, TRANS_GLOBAL_SEQ)
+//	dtmimp.E2P(err)
+//
+//	seqBin := as.NewBin(GLOBAL_SEQ, &seq)
+//
+//	add := as.AddOp(seqBin)
+//	get := as.GetBinOp(GLOBAL_SEQ)
+//
+//	writePolicy := client.DefaultWritePolicy
+//	record, err := client.Operate(writePolicy, sequenceKey, add, get)
+//	dtmimp.E2P(err)
+//	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
+//	if ok == true {
+//		return newSeq
+//	}
+//	return -1
+//
+//}
 
 type TEXT string
 type BYTEA string
@@ -98,6 +107,7 @@ func getTransGlobalTableBins() *[]string {
 		"custom_data",
 		"nxt_cron_intrvl",
 		"next_cron_time",
+		"ext_data",
 		"owner",
 		"branches",
 	}
@@ -131,7 +141,7 @@ func CreateTransGlobalSet() {
 	var trans TransGlobal
 
 	trans.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TRANS_GLOBAL, trans.id.String())
+	key, err := as.NewKey(SCHEMA, TransactionManagerSet, trans.id.String())
 	dtmimp.E2P(err)
 
 	cdtStatusNextCronTime := map[string]interface{}{
@@ -195,7 +205,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]string) error 
 	var trans TransGlobal
 
 	trans.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TRANS_GLOBAL, trans.id.String())
+	key, err := as.NewKey(SCHEMA, TransactionManagerSet, trans.id.String())
 	dtmimp.E2P(err)
 
 	next_cron_time := global.NextCronTime.UnixNano()
@@ -236,7 +246,7 @@ func CheckTransGlobalTableForGID(gid string) bool {
 
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  nil,
 		Filter:    filter,
@@ -264,7 +274,7 @@ func GetTransGlobal(gid string) *string {
 	bins := getTransGlobalTableBins()
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  *bins,
 		Filter:    filter,
@@ -286,7 +296,10 @@ func GetTransGlobal(gid string) *string {
 			// handle error here
 			logger.Errorf("unable to read record, %s", res.Err)
 			// if you want to exit, cancel the recordset to release the resources
-			rs.Close()
+			err := rs.Close()
+			if err != nil {
+				continue
+			}
 		} else {
 			id := res.Record.Key.Value().String()
 			logger.Infof("retrieved key: %s", id)
@@ -307,7 +320,7 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	bins := getTransGlobalTableBins()
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  *bins,
 		Filter:    filter,
@@ -327,7 +340,10 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 			// handle error here
 			logger.Errorf("unable to read record, %s", res.Err)
 			// if you want to exit, cancel the recordset to release the resources
-			rs.Close()
+			err := rs.Close()
+			if err != nil {
+				continue
+			}
 		} else {
 			id := res.Record.Key
 			logger.Infof("retrieved key: %s", id)
@@ -364,8 +380,12 @@ func ScanTransGlobalTable() *[]string {
 	policy.MaxConcurrentNodes = 0
 	policy.IncludeBinData = true
 
-	recs, err := client.ScanAll(policy, SCHEMA, TRANS_GLOBAL)
+	recs, err := client.ScanAll(policy, SCHEMA, TransactionManagerSet)
 	dtmimp.E2P(err)
+
+	if len(recs.Results()) == 0 {
+		return nil
+	}
 
 	var results []string
 
@@ -375,7 +395,10 @@ func ScanTransGlobalTable() *[]string {
 			// handle error here
 			logger.Errorf("unable to read record, %s", res.Err)
 			// if you want to exit, cancel the recordset to release the resources
-			recs.Close()
+			err := recs.Close()
+			if err != nil {
+				continue
+			}
 		} else {
 			id := res.Record.Key.Value().String()
 			logger.Infof("retrieved key: %s with gid", id, res.Record.Bins["gid"])
@@ -408,7 +431,7 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  *bins,
 		Filter:    nil,
@@ -458,7 +481,7 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 	var singleBin = []string{"gid"}
 	statement = &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  singleBin,
 		Filter:    filter,
@@ -498,7 +521,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 	var bins = []string{"gid", "NextCronTime"}
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  bins,
 		Filter:    nil,
@@ -552,7 +575,7 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 	var bins = []string{"gid", "status", "update_time", "next_cron_time", "nxt_cron_intrvl"}
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_GLOBAL,
+		SetName:   TransactionManagerSet,
 		IndexName: "TXM_GID",
 		BinNames:  bins,
 		Filter:    filter,
@@ -593,43 +616,43 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 
 type TransBranchOp struct {
 	id          xid.ID
-	gid         [128]byte
-	url         [1024]byte
+	gid         string //[128]byte
+	url         string //[1024]byte
 	data        TEXT
 	bin_data    BYTEA
-	branch_id   [128]byte
-	op          [45]byte
-	status      [45]byte
+	branch_id   string //[128]byte
+	op          string //[45]byte
+	status      string //[45]byte
 	finish_time int64
 	create_time int64
 	update_time int64
 }
 
-func GetSequenceTransBranchOp() int64 {
-	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
-	// Create Key
-	client := aerospikeGet()
-	defer connectionPools.Put(client)
-
-	var seq int64
-	sequenceKey, err := as.NewKey(SCHEMA, TRANS_BRANCH_OP, TRANS_BRANCH_OP_SEQ)
-	dtmimp.E2P(err)
-
-	seqBin := as.NewBin(GLOBAL_SEQ, &seq)
-
-	add := as.AddOp(seqBin)
-	get := as.GetBinOp(GLOBAL_SEQ)
-
-	writePolicy := client.DefaultWritePolicy
-	record, err := client.Operate(writePolicy, sequenceKey, add, get)
-	dtmimp.E2P(err)
-	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
-	if ok == true {
-		return newSeq
-	}
-	return -1
-
-}
+//func GetSequenceTransBranchOp() int64 {
+//	//CREATE SEQUENCE if not EXISTS dtm.trans_global_seq;
+//	// Create Key
+//	client := aerospikeGet()
+//	defer connectionPools.Put(client)
+//
+//	var seq int64
+//	sequenceKey, err := as.NewKey(SCHEMA, TransactionSet, TRANS_BRANCH_OP_SEQ)
+//	dtmimp.E2P(err)
+//
+//	seqBin := as.NewBin(GLOBAL_SEQ, &seq)
+//
+//	add := as.AddOp(seqBin)
+//	get := as.GetBinOp(GLOBAL_SEQ)
+//
+//	writePolicy := client.DefaultWritePolicy
+//	record, err := client.Operate(writePolicy, sequenceKey, add, get)
+//	dtmimp.E2P(err)
+//	newSeq, ok := record.Bins[GLOBAL_SEQ].(int64)
+//	if ok == true {
+//		return newSeq
+//	}
+//	return -1
+//
+//}
 
 func DropTableTransBranchOp() {
 	//drop table IF EXISTS dtm.trans_global;
@@ -637,12 +660,18 @@ func DropTableTransBranchOp() {
 	defer connectionPools.Put(client)
 
 	writePolicy := &as.WritePolicy{
-		DurableDelete: true,
-		CommitLevel:   as.COMMIT_MASTER,
+		RecordExistsAction: as.REPLACE,
+		DurableDelete:      true,
+		CommitLevel:        as.COMMIT_MASTER,
 	}
 	now := time.Now()
-	err := client.Truncate(writePolicy, SCHEMA, TRANS_BRANCH_OP, &now)
+	err := client.Truncate(writePolicy, SCHEMA, TransactionSet, &now)
+	dtmimp.E2P(err)
 
+	err = client.DropIndex(writePolicy, SCHEMA, TransactionSet, "TXMBRANCH_GID")
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, SCHEMA, TransactionSet, "GID_BRANCH_UNIQ")
 	dtmimp.E2P(err)
 
 }
@@ -672,27 +701,28 @@ func CreateTransBranchOpSet() {
 	var transBranch TransBranchOp
 
 	transBranch.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TRANS_GLOBAL, transBranch.id.String())
+	key, err := as.NewKey(SCHEMA, TransactionManagerSet, transBranch.id.String())
 	dtmimp.E2P(err)
 
 	gid_branch_uniq := map[string]interface{}{
-		"gid":       &transBranch.gid,
-		"branch_id": &transBranch.branch_id,
-		"op":        &transBranch.op,
+		"gid":       transBranch.gid,
+		"branch_id": transBranch.branch_id,
+		"op":        transBranch.op,
 	}
 
-	var bins as.BinMap
-	bins["gid"] = &transBranch.gid
-	bins["url"] = &transBranch.url
-	bins["data"] = &transBranch.data
-	bins["bin_data"] = &transBranch.bin_data
-	bins["branch_id"] = &transBranch.branch_id
-	bins["op"] = &transBranch.op
-	bins["status"] = &transBranch.status
-	bins["finish_time"] = &transBranch.finish_time
-	bins["create_time"] = &transBranch.create_time
-	bins["update_time"] = &transBranch.update_time
-	bins["gid_branch_uniq"] = &gid_branch_uniq
+	bins := as.BinMap{}
+
+	bins["gid"] = transBranch.gid
+	bins["url"] = transBranch.url
+	bins["data"] = transBranch.data
+	bins["bin_data"] = transBranch.bin_data
+	bins["branch_id"] = transBranch.branch_id
+	bins["op"] = transBranch.op
+	bins["status"] = transBranch.status
+	bins["finish_time"] = transBranch.finish_time
+	bins["create_time"] = transBranch.create_time
+	bins["update_time"] = transBranch.update_time
+	bins["gid_branch_uniq"] = gid_branch_uniq
 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
@@ -702,13 +732,13 @@ func CreateTransBranchOpSet() {
 	dtmimp.E2P(err)
 
 	//create index if not EXISTS gid on dtm.trans_global(gid);
-	indexTask, err := client.CreateIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "TXMBRANCH_GID", "gid", as.STRING)
+	indexTask, err := client.CreateIndex(policy, SCHEMA, TransactionSet, "TXMBRANCH_GID", "gid", as.STRING)
 	dtmimp.E2P(err)
 	Idxerr := <-indexTask.OnComplete()
 	dtmimp.E2P(Idxerr)
 
 	//CONSTRAINT gid_branch_uniq UNIQUE (gid, branch_id, op)
-	indexTask1, err := client.CreateComplexIndex(policy, TransactionManagerNamespace, TransactionManagerSet, "st_nxt_ctime", "st_nxt_ctime", as.STRING, as.ICT_MAPVALUES)
+	indexTask1, err := client.CreateComplexIndex(policy, SCHEMA, TransactionSet, "GID_BRANCH_UNIQ", "gid_branch_uniq", as.STRING, as.ICT_MAPVALUES)
 	Idxerr1 := <-indexTask1.OnComplete()
 	dtmimp.E2P(Idxerr1)
 }
@@ -724,7 +754,7 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 	for _, branch := range branches {
 
 		id := xid.New()
-		key, err := as.NewKey(SCHEMA, TRANS_GLOBAL, id.String())
+		key, err := as.NewKey(SCHEMA, TransactionManagerSet, id.String())
 		dtmimp.E2P(err)
 
 		gid_branch_uniq := map[string]interface{}{
@@ -764,7 +794,7 @@ func GetBranchs(gid string) *[]string {
 	bins := getTransGlobalTableBins()
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_BRANCH_OP,
+		SetName:   TransactionSet,
 		IndexName: "TXMBRANCH_GID",
 		BinNames:  *bins,
 		Filter:    filter,
@@ -782,7 +812,10 @@ func GetBranchs(gid string) *[]string {
 			// handle error here
 			logger.Errorf("unable to read record, %s", res.Err)
 			// if you want to exit, cancel the recordset to release the resources
-			rs.Close()
+			err := rs.Close()
+			if err != nil {
+				continue
+			}
 		} else {
 			id := res.Record.Key.Value().String()
 			logger.Infof("retrieved key: %s", id)
@@ -806,7 +839,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 	bins := getTransGlobalTableBins()
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TRANS_BRANCH_OP,
+		SetName:   TransactionSet,
 		IndexName: "TXMBRANCH_GID",
 		BinNames:  *bins,
 		Filter:    nil,
@@ -831,7 +864,10 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 			// handle error here
 			logger.Errorf("unable to read record, %s", res.Err)
 			// if you want to exit, cancel the recordset to release the resources
-			rs.Close()
+			err := rs.Close()
+			if err != nil {
+				continue
+			}
 		} else {
 			id := res.Record.Key
 			logger.Infof("retrieved key: %s", id)

@@ -14,7 +14,7 @@
    MaxOpenConns: 20
    MaxIdleConns: 10
    AerospikeNamespace: 'test'
-   AerospikeSeedSrv: '127.0.0.1:3000'
+   AerospikeSeedSrv: '10.211.55.200:3000'
 
 # Store: # specify which engine to store trans status
 #   Driver: 'mysql'

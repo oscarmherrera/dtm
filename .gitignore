@@ -18,3 +18,4 @@ dtm-*
 dtm.*
 cache
 
+/out/

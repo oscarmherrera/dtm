@@ -19,9 +19,9 @@ import (
 	"github.com/dtm-labs/dtm/dtmsvr/storage"
 )
 
-var TransactionManagerNamespace string = "test"
-var TransactionManagerSet string = "globaltx_astm"
-var TransactionSet string = "tx_astm"
+var TransactionManagerNamespace = "test"
+var TransactionManagerSet = "trans_global"
+var TransactionSet = "trans_branch_op"
 
 // TODO: optimize this, it's very strange to use pointer to dtmutil.Config
 var conf = &config.Config
@@ -87,7 +87,12 @@ func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.TransGlobalStore {
 	logger.Debugf("calling ScanTransGlobalStores: %s %d", *position, limit)
 	results := ScanTransGlobalTable()
+
 	globals := []storage.TransGlobalStore{}
+
+	if results == nil {
+		return globals
+	}
 
 	for _, v := range *results {
 		global := storage.TransGlobalStore{}
@@ -158,6 +163,9 @@ func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus s
 func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalStore {
 
 	resultString := LockOneGlobalTrans(expireIn)
+	if resultString == nil {
+		return nil
+	}
 	global := &storage.TransGlobalStore{}
 	dtmimp.MustUnmarshalString(*resultString, global)
 	return global
