@@ -758,7 +758,7 @@ func CreateTransBranchOpSet() {
 	var transBranch TransBranchOp
 
 	transBranch.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, transBranch.id.String())
+	key, err := as.NewKey(SCHEMA, TransactionBranchOp, transBranch.id.String())
 	dtmimp.E2P(err)
 
 	gid_branch_uniq := map[string]interface{}{
