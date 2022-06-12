@@ -28,7 +28,7 @@ func exitIf(code int) {
 }
 
 func TestMain(m *testing.M) {
-	config.MustLoadConfig("")
+	config.MustLoadConfig("../test.yml")
 	logger.InitLog("debug")
 	dtmcli.SetCurrentDBType(busi.BusiConf.Driver)
 	dtmsvr.TransProcessedTestChan = make(chan string, 1)
@@ -41,27 +41,55 @@ func TestMain(m *testing.M) {
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
 	tenv := os.Getenv("TEST_STORE")
-	if tenv == "boltdb" {
+	switch tenv {
+	case "boltdb":
 		conf.Store.Driver = "boltdb"
-	} else if tenv == "mysql" {
+	case "mysql":
 		conf.Store.Driver = "mysql"
 		conf.Store.Host = "localhost"
 		conf.Store.Port = 3306
 		conf.Store.User = "root"
 		conf.Store.Password = ""
-	} else {
+	case "aerospike":
+		conf.Store.Driver = "aerospike"
+		conf.Store.Host = "localhost"
+		conf.Store.User = "admin"
+		conf.Store.Password = "admin"
+		conf.Store.Port = 3000
+		conf.Store.MaxOpenConns = 50
+		conf.Store.MaxIdleConns = 20
+		conf.Store.AerospikeNamespace = "test"
+		conf.Store.AerospikeSeedSrv = "10.211.55.200:3000"
+	default:
 		conf.Store.Driver = "redis"
 		conf.Store.Host = "localhost"
 		conf.Store.User = ""
 		conf.Store.Password = ""
 		conf.Store.Port = 6379
 	}
+
+	//if tenv == "boltdb" {
+	//	conf.Store.Driver = "boltdb"
+	//} else if tenv == "mysql" {
+	//	conf.Store.Driver = "mysql"
+	//	conf.Store.Host = "localhost"
+	//	conf.Store.Port = 3306
+	//	conf.Store.User = "root"
+	//	conf.Store.Password = ""
+	//} else {
+	//	conf.Store.Driver = "redis"
+	//	conf.Store.Host = "localhost"
+	//	conf.Store.User = ""
+	//	conf.Store.Password = ""
+	//	conf.Store.Port = 6379
+	//}
 	registry.WaitStoreUp()
 
 	dtmsvr.PopulateDB(false)
+	//dtmsvr.PopulateDB(true)
 	go dtmsvr.StartSvr()
 
-	busi.PopulateDB(false)
+	busi.PopulateDB(false, "aerospike")
 	_ = busi.Startup()
 	r := m.Run()
 	exitIf(r)

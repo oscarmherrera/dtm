@@ -19,10 +19,6 @@ import (
 	"github.com/dtm-labs/dtm/dtmsvr/storage"
 )
 
-var TransactionManagerNamespace = "test"
-var TransactionManagerSet = "trans_global"
-var TransactionSet = "trans_branch_op"
-
 // TODO: optimize this, it's very strange to use pointer to dtmutil.Config
 var conf = &config.Config
 
@@ -70,6 +66,7 @@ func (s *Store) PopulateData(skipDrop bool) {
 	}
 	CreateTransGlobalSet()
 	CreateTransBranchOpSet()
+
 }
 
 // FindTransGlobalStore finds GlobalTrans data by gid
@@ -77,7 +74,9 @@ func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 	logger.Debugf("calling FindTransGlobalStore: %s", gid)
 
 	result := GetTransGlobal(gid)
-
+	if result == nil {
+		return nil
+	}
 	trans := &storage.TransGlobalStore{}
 	dtmimp.MustUnmarshalString(*result, trans)
 	return trans
@@ -85,9 +84,11 @@ func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 
 // ScanTransGlobalStores lists GlobalTrans data
 func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.TransGlobalStore {
-	logger.Debugf("calling ScanTransGlobalStores: %s %d", *position, limit)
-	results := ScanTransGlobalTable()
+	logger.Debugf("calling ScanTransGlobalStores: positiion: %s, limit: %d", *position, limit)
+	results, pos := ScanTransGlobalTable(position, limit)
 
+	*position = *pos
+	logger.Debugf("ScanTransGlobalStores: position value, %s", position)
 	globals := []storage.TransGlobalStore{}
 
 	if results == nil {
@@ -105,12 +106,21 @@ func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.T
 // FindBranches finds Branch data by gid
 func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 	logger.Debugf("calling FindBranches: %s", gid)
-	results := GetBranchs(gid)
 
-	branches := make([]storage.TransBranchStore, len(*results))
-	for k, v := range *results {
-		dtmimp.MustUnmarshalString(v, &branches[k])
+	branches := []storage.TransBranchStore{}
+
+	results := GetBranchs(gid)
+	if results == nil {
+		return branches
 	}
+
+	//branches := make([]storage.TransBranchStore, len(*results))
+	for _, v := range *results {
+		b := storage.TransBranchStore{}
+		dtmimp.MustUnmarshalString(v, &b)
+		branches = append(branches, b)
+	}
+
 	return branches
 }
 
@@ -123,7 +133,7 @@ func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []st
 // MaySaveNewTrans creates a new trans
 func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []storage.TransBranchStore) error {
 
-	exist := CheckTransGlobalTableForGID(global.Gid)
+	exist := CheckTransGlobalTableForGIDExists(global.Gid)
 
 	if exist == true {
 		return errors.New("UNIQUE_CONFLICT")
@@ -149,7 +159,6 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 
 // LockGlobalSaveBranches creates branches
 func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []storage.TransBranchStore, branchStart int) {
-
 	err := UpdateBranchsWithGIDStatus(gid, status, branches)
 	dtmimp.E2P(err)
 }

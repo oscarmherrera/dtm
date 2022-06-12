@@ -82,9 +82,9 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 	}
 	timeout := int(config.ConnMaxLifeTime)
 	poolConfig := &pool.Config{
-		InitialCap:  5,
-		MaxIdle:     int(config.MaxIdleConns),
-		MaxCap:      int(config.MaxOpenConns),
+		InitialCap:  20,
+		MaxIdle:     int(config.MaxIdleConns) + 10,
+		MaxCap:      int(config.MaxOpenConns) + 10,
 		Factory:     factory,
 		Close:       closeConn,
 		IdleTimeout: time.Duration(time.Second * time.Duration(timeout)),
@@ -103,7 +103,9 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 }
 
 func (p *ASConnectionPool) Get() (interface{}, error) {
-	return p.connPool.Get()
+	conn, err := p.connPool.Get()
+	logger.Debugf("connection get, pool depth:%d", p.PoolDepth())
+	return conn, err
 }
 
 func (p *ASConnectionPool) Put(c interface{}) {
@@ -112,6 +114,7 @@ func (p *ASConnectionPool) Put(c interface{}) {
 		logger.Errorf("connection pool put")
 		return
 	}
+	logger.Debugf("connection put, pool depth:%d", p.PoolDepth())
 }
 
 func (p *ASConnectionPool) Release() {
