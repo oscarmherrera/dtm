@@ -134,13 +134,14 @@ func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []st
 func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []storage.TransBranchStore) error {
 
 	exist := CheckTransGlobalTableForGIDExists(global.Gid)
-
+	logger.Debugf("MaySaveNewTrans: checking if gid(%s) exists(%t)", global.Gid, exist)
 	if exist == true {
 		return errors.New("UNIQUE_CONFLICT")
 	}
 
 	var branchGidList []string
 	for _, v := range branches {
+		logger.Debugf("MaySaveNewTrans: saving global trans for branch gid(%s)", v.Gid)
 		branchGidList = append(branchGidList, v.Gid)
 	}
 
@@ -165,19 +166,18 @@ func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []sto
 
 // ChangeGlobalStatus changes global trans status
 func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+	logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
 	UpdateGlobalStatus(global, newStatus, updates, finished)
 }
 
 // LockOneGlobalTrans finds GlobalTrans
 func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalStore {
-
-	resultString := LockOneGlobalTrans(expireIn)
-	if resultString == nil {
+	logger.Debugf("LockOneGlobalTrans: with expireIn %v", expireIn)
+	result := LockOneGlobalTransTrans(expireIn)
+	if result == nil {
 		return nil
 	}
-	global := &storage.TransGlobalStore{}
-	dtmimp.MustUnmarshalString(*resultString, global)
-	return global
+	return result
 }
 
 // ResetCronTime rest nextCronTime

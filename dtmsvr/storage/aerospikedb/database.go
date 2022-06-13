@@ -128,7 +128,7 @@ func CreateTransGlobalSet() {
 	branches := []string{}
 
 	bins := as.BinMap{
-		"xid":             trans.id,
+		"xid":             trans.id.Bytes(),
 		"gid":             trans.gid,
 		"trans_type":      trans.trans_type,
 		"status":          trans.status,
@@ -281,7 +281,7 @@ func convertAerospikeRecordToTransGlobalRecord(asRecord *as.Record) *storage.Tra
 	if asRecord.Bins["rollback_time"] != nil {
 
 		rollbackTime := convertASIntInterfaceToTime(asRecord.Bins["rollback_time"])
-		tranRecord.FinishTime = &rollbackTime
+		tranRecord.RollbackTime = &rollbackTime
 	}
 
 	if asRecord.Bins["options"] != nil {
@@ -295,11 +295,9 @@ func convertAerospikeRecordToTransGlobalRecord(asRecord *as.Record) *storage.Tra
 	if asRecord.Bins["next_cron_intvl"] != nil {
 		var int64Value int64
 		if _, ok := asRecord.Bins["next_cron_intvl"].(int); ok {
-			logger.Debugf("value is an int converting to int64: %v", asRecord.Bins["next_cron_intvl"])
 			int64Value = int64(asRecord.Bins["next_cron_intvl"].(int))
 		} else {
 			int64Value = asRecord.Bins["next_cron_intvl"].(int64)
-			logger.Debugf("value int64 no conversion needed: %v", asRecord.Bins["next_cron_intvl"])
 		}
 
 		tranRecord.NextCronInterval = int64Value
@@ -307,7 +305,7 @@ func convertAerospikeRecordToTransGlobalRecord(asRecord *as.Record) *storage.Tra
 
 	if asRecord.Bins["next_cron_time"] != nil {
 		nextCronTime := convertASIntInterfaceToTime(asRecord.Bins["next_cron_time"])
-		tranRecord.FinishTime = &nextCronTime
+		tranRecord.NextCronTime = &nextCronTime
 	}
 
 	if asRecord.Bins["owner"] != nil {
@@ -323,11 +321,9 @@ func convertASIntInterfaceToTime(asIntf interface{}) time.Time {
 	var timeValue int64
 
 	if _, ok := asIntf.(int); ok {
-		logger.Debugf("value is an int converting to int64: %v", asIntf)
 		timeValue = int64(asIntf.(int))
 	} else {
 		timeValue = asIntf.(int64)
-		logger.Debugf("value int64 no conversion needed: %v", asIntf)
 	}
 	value := time.Unix(0, timeValue)
 	return value
@@ -338,6 +334,9 @@ func GetTransGlobal(gid string) *string {
 	defer connectionPools.Put(client)
 
 	policy := &as.BasePolicy{}
+	if gid == "" {
+		logger.Infof("GetTransGlobal: gid is empty")
+	}
 	logger.Debugf("GetTransGlobal: gid being retrieved: %s", gid)
 
 	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
@@ -350,46 +349,13 @@ func GetTransGlobal(gid string) *string {
 		return nil
 	}
 
-	logger.Debugf("GetTransGlobal: retrieve record gid: %d", record.Bins["gid"])
+	logger.Debugf("GetTransGlobal: retrieve record gid: %s", record.Bins["gid"])
 
 	transStore := convertAerospikeRecordToTransGlobalRecord(record)
 	resultString := transStore.String()
+	logger.Debugf("GetTransGlobal: raw as record: %s", record.String())
+	logger.Debugf("GetTransGlobal: retrieve record result string: %s", resultString)
 
-	logger.Debugf("GetTransGlobal: retrieve record: %d", resultString)
-
-	//	logger.Debugf("GetTransGlobal: results records returned: %d", len(rs.Results()))
-	//if len(rs.Results()) == 0 {
-	//	logger.Infof("record not found with gid: %s", gid)
-	//	return nil
-	//}
-	//
-	//if len(rs.Results()) != 1 {
-	//	dtmimp.E2P(errors.New("multiple records with the same unique gid"))
-	//}
-
-	//var resultString string
-	//
-	//for res := range rs.Results() {
-	//
-	//	if res.Err != nil {
-	//		// handle error here
-	//		logger.Errorf("unable to read record, %s", res.Err)
-	//		// if you want to exit, cancel the recordset to release the resources
-	//		err := rs.Close()
-	//		if err != nil {
-	//			continue
-	//		}
-	//	} else {
-	//		if res.Record.Key == nil {
-	//			logger.Debugf("GetTransGlobal: no key found")
-	//			continue
-	//		}
-	//		id := res.Record.Key.Value().String()
-	//
-	//		logger.Infof("retrieved key: %s", id)
-	//		resultString = res.Record.String()
-	//	}
-	//}
 	return &resultString
 }
 
@@ -417,7 +383,7 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 		BasePolicy: as.BasePolicy{
 			TotalTimeout: 200 * time.Millisecond,
 		},
-		RecordExistsAction: as.REPLACE,
+		RecordExistsAction: as.UPDATE_ONLY,
 		GenerationPolicy:   0,
 		CommitLevel:        0,
 		Generation:         0,
@@ -487,31 +453,46 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]string, *string) {
 	return &results, &pos
 }
 
-func LockOneGlobalTrans(expireIn time.Duration) *string {
+func LockOneGlobalTransString(expireIn time.Duration) *string {
+	trans := LockOneGlobalTransTrans(expireIn)
+	if trans != nil {
+		resultString := trans.String()
+		logger.Debugf("LockOneGlobalTrans: locked record %s", resultString)
+		return &resultString
+	}
+
+	return nil
+}
+
+func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
+
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	expired := time.Now().Add(expireIn).UnixNano()
+	expiredTime := time.Now().Add(expireIn)
+	expired := expiredTime.UnixNano()
+	logger.Debugf("LockOneGlobalTrans: where expired less then: %d, realtime (%s)", expired, expiredTime.String())
 	owner := shortuuid.New()
 
 	policy := as.NewQueryPolicy()
-	whereTime := as.ExpLess(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
-	contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
-	contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
-	contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
+	//whereTime := as.ExpLess(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
+	//contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
+	//contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
+	//contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
 
-	statusExp := as.ExpIntOr(contains1, contains2, contains3)
+	//statusExp := as.ExpIntOr(contains1, contains2, contains3)
 
-	expression := as.ExpAnd(whereTime, statusExp)
+	//expression := as.ExpAnd(whereTime, statusExp)
 
-	policy.FilterExpression = expression
+	//policy.FilterExpression = whereTime
 
 	bins := getTransGlobalTableBins()
+	//policy.MaxRecords = int64(1)
 
 	statement := &as.Statement{
 		Namespace: SCHEMA,
 		SetName:   TransactionGlobal,
-		IndexName: "TXM_GID",
+		IndexName: "st_nxt_ctime",
 		BinNames:  *bins,
 		Filter:    nil,
 		TaskId:    0,
@@ -523,15 +504,12 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 		logger.Errorf("LockOneGlobalTrans error: %s", err)
 		return nil
 	}
-	logger.Debugf("LockOneGlobalTrans: results records returned: %d", len(rs.Results()))
-	if len(rs.Results()) == 0 {
-		return nil
-	}
+
 	updatePolicy := &as.WritePolicy{
 		BasePolicy: as.BasePolicy{
 			TotalTimeout: 200 * time.Millisecond,
 		},
-		RecordExistsAction: as.REPLACE,
+		RecordExistsAction: as.UPDATE_ONLY,
 		GenerationPolicy:   0,
 		CommitLevel:        0,
 		Generation:         0,
@@ -539,83 +517,114 @@ func LockOneGlobalTrans(expireIn time.Duration) *string {
 		RespondPerEachOp:   false,
 		DurableDelete:      true,
 	}
-
+	counter := int64(0)
 	for res := range rs.Results() {
+		if res.Err != nil {
+			logger.Errorf("LockOneGlobalTrans: %s", res.Err)
+			return nil
+		}
 		id := res.Record.Key
 		bins := res.Record.Bins
-		next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
-		bins["next_cron_time"] = next
-		bins["owner"] = owner
-		err = aerospikeGet().Put(updatePolicy, id, bins)
+		status := bins["status"].(string)
+		expireValue := convertASIntInterfaceToTime(bins["next_cron_time"])
 
-		if err != nil {
-			logger.Errorf("error updating global transaction id %v, bins:%v", id, bins)
-			dtmimp.E2P(err)
+		logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), expireValue.String())
+
+		if (status == "prepared" || status == "aborting" || status == "submitted") && (expireValue.UnixNano() < expired) {
+			if counter < 1 {
+				next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
+				bins["next_cron_time"] = next
+				bins["owner"] = owner
+				err = client.Put(updatePolicy, id, bins)
+
+				if err != nil {
+					logger.Errorf("LockOneGlobalTrans: error updating global transaction id %v, bins:%v", id, bins)
+					dtmimp.E2P(err)
+				}
+				logger.Debugf("LockOneGlobalTrans: locking a trans with gid %s and owner %s", bins["gid"].(string), owner)
+				// found the first one
+				counter++
+			} else {
+				break
+			}
 		}
 	}
+	if counter == 0 {
+		// Didn't find anything so return nil
+		return nil
+	}
 
-	policy = as.NewQueryPolicy()
+	queryPolicy := as.NewQueryPolicy()
+	equalOwner := as.ExpEq(as.ExpStringBin("owner"), as.ExpStringVal(owner))
+	//filter := as.NewEqualFilter("owner", owner)
+	queryPolicy.FilterExpression = equalOwner
+	queryPolicy.MaxRecords = 1
 
-	filter := as.NewEqualFilter("owner", owner)
-
-	var singleBin = []string{"gid"}
 	statement = &as.Statement{
 		Namespace: SCHEMA,
 		SetName:   TransactionGlobal,
 		IndexName: "TXM_GID",
-		BinNames:  singleBin,
-		Filter:    filter,
+		BinNames:  *bins,
+		Filter:    nil,
 		TaskId:    0,
 	}
 
 	rs2, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
-	var firstGID string
+
+	var resultTrans *storage.TransGlobalStore
 	for res := range rs2.Results() {
-		firstGID = res.Record.Bins["gid"].(string)
+		resultTrans = convertAerospikeRecordToTransGlobalRecord(res.Record)
 		break
 	}
 
-	resultString := GetTransGlobal(firstGID)
-
-	return resultString
+	return resultTrans
 }
 
 func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
+	logger.Debugf("ResetCronTimeGlobalTran: timeout %v limit(%d)", timeout, limit)
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	timeoutTimestamp := time.Now().Add(timeout).UnixNano()
-
 	policy := as.NewQueryPolicy()
-	whereTime := as.ExpGreater(as.ExpIntBin("next_cron_time"), as.ExpIntVal(timeoutTimestamp))
-	contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
-	contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
-	contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
 
-	statusExp := as.ExpIntOr(contains1, contains2, contains3)
+	expiredTime := time.Now().Add(timeout)
+	expired := expiredTime.UnixNano()
+	logger.Debugf("ResetCronTimeGlobalTran: where expired greater then: %d, realtime (%s)", expired, expiredTime.String())
 
-	expression := as.ExpAnd(whereTime, statusExp)
+	whereTime := as.ExpGreater(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
+	//contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
+	//contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
+	//contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
+	//
+	//statusExp := as.ExpIntOr(contains1, contains2, contains3)
+	//
+	//expression := as.ExpAnd(whereTime, statusExp)
 
-	policy.FilterExpression = expression
-	var bins = []string{"gid", "NextCronTime"}
+	policy.FilterExpression = whereTime
+	var bins = []string{"gid", "status", "next_cron_time"}
 	statement := &as.Statement{
 		Namespace: SCHEMA,
 		SetName:   TransactionGlobal,
-		IndexName: "TXM_GID",
+		IndexName: "st_nxt_ctime",
 		BinNames:  bins,
 		Filter:    nil,
 		TaskId:    0,
 	}
 
+	// Todo complain about MaxRecords being an approximation
+
 	rs, err := client.Query(policy, statement)
-	dtmimp.E2P(err)
+	if err != nil {
+		logger.Errorf("ResetCronTimeGlobalTran: query error: %s", err)
+		return 0, false, err
+	}
 
 	updatePolicy := &as.WritePolicy{
 		BasePolicy: as.BasePolicy{
 			TotalTimeout: 200 * time.Millisecond,
 		},
-		RecordExistsAction: as.REPLACE,
+		RecordExistsAction: as.UPDATE,
 		GenerationPolicy:   0,
 		CommitLevel:        0,
 		Generation:         0,
@@ -625,22 +634,77 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 	}
 
 	succeedCount = 0
-
+	resultCounter := int64(0)
 	for res := range rs.Results() {
-		id := res.Record.Key
-		bins := res.Record.Bins
-		bins["next_cron_time"] = dtmutil.GetNextTime(0).UnixNano()
-		err = client.Put(updatePolicy, id, bins)
-		if err != nil {
-			logger.Errorf("error updating global transaction id %v, bins:%v", id, bins)
-			dtmimp.E2P(err)
+		if res.Err != nil {
+			logger.Errorf("ResetCronTimeGlobalTran: results error: %s", err)
+			dtmimp.E2P(res.Err)
 		}
-		succeedCount++
+		if resultCounter < limit {
+			id := res.Record.Key
+			bins := res.Record.Bins
+			status := bins["status"].(string)
+			expireValue := convertASIntInterfaceToTime(bins["next_cron_time"])
+			logger.Debugf("ResetCronTimeGlobalTran: gid (%s) expires (%s)", bins["gid"].(string), expireValue.String())
+			if status == "prepared" || status == "aborting" || status == "submitted" {
+				bins["next_cron_time"] = dtmutil.GetNextTime(0).UnixNano()
+				err = client.Put(updatePolicy, id, bins)
+				if err != nil {
+					logger.Errorf("error updating global transaction id %v, bins:%v", id, bins)
+					dtmimp.E2P(err)
+				}
+				succeedCount++
+			}
+		}
+		resultCounter++
 	}
-	if succeedCount > limit {
-		hasRemaining = true
-		succeedCount = limit
+	logger.Debugf("ResetCronTimeGlobalTran: succeedCount (%d) resultsCounter(%d)", succeedCount, resultCounter)
+	if succeedCount == 0 {
+		hasRemaining = false
+		return
 	}
+	//if succeedCount < limit && succeedCount != 0 {
+	//	hasRemaining = true
+	//	return
+	//}
+	if succeedCount <= limit && succeedCount != 0 {
+		logger.Debugf("ResetCronTimeGlobalTran: succeedCount(%d) == limit(%d)", succeedCount, limit)
+		//policy.MaxRecords = int64(1)
+		rs2, err := client.Query(policy, statement)
+		if err != nil {
+			logger.Errorf("ResetCronTimeGlobalTran: query error: %s", err)
+			return 0, false, err
+		}
+
+		counter := 0
+		for res := range rs2.Results() {
+
+			if res.Err != nil {
+				logger.Errorf("ResetCronTimeGlobalTran: results error: %s", err)
+				dtmimp.E2P(res.Err)
+			}
+			bins := res.Record.Bins
+			status := bins["status"].(string)
+
+			if status == "prepared" || status == "aborting" || status == "submitted" {
+				counter++
+			}
+
+		}
+
+		if succeedCount < limit {
+			hasRemaining = true
+		}
+
+		if counter > 0 {
+			logger.Debugf("ResetCronTimeGlobalTran: checking for remaining counter = %d remaining %t", counter, hasRemaining)
+			hasRemaining = true
+		} else {
+			hasRemaining = false
+			logger.Debugf("ResetCronTimeGlobalTran: checking for remaining counter = %d remaining %t", counter, hasRemaining)
+		}
+	}
+
 	return
 }
 
@@ -1026,7 +1090,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 				BasePolicy: as.BasePolicy{
 					TotalTimeout: 200 * time.Millisecond,
 				},
-				RecordExistsAction: as.REPLACE,
+				RecordExistsAction: as.UPDATE_ONLY,
 				GenerationPolicy:   0,
 				CommitLevel:        0,
 				Generation:         0,
