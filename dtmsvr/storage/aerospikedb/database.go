@@ -329,7 +329,7 @@ func convertASIntInterfaceToTime(asIntf interface{}) time.Time {
 	return value
 }
 
-func GetTransGlobal(gid string) *string {
+func GetTransGlobalStore(gid string) *storage.TransGlobalStore {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -352,8 +352,18 @@ func GetTransGlobal(gid string) *string {
 	logger.Debugf("GetTransGlobal: retrieve record gid: %s", record.Bins["gid"])
 
 	transStore := convertAerospikeRecordToTransGlobalRecord(record)
+
+	return transStore
+}
+
+func GetTransGlobal(gid string) *string {
+	transStore := GetTransGlobalStore(gid)
+	if transStore == nil {
+		logger.Debugf("GetTransGlobal: no record found")
+		return nil
+	}
 	resultString := transStore.String()
-	logger.Debugf("GetTransGlobal: raw as record: %s", record.String())
+	logger.Debugf("GetTransGlobal: raw as record: %s", transStore.String())
 	logger.Debugf("GetTransGlobal: retrieve record result string: %s", resultString)
 
 	return &resultString
@@ -395,62 +405,132 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	dtmimp.E2P(err)
 }
 
-// Todo Implement as a sorted set
-// current I just get the next one in the list which may not be in key order
-// Implement pagination as well when a position is passed in that is not empty
-func ScanTransGlobalTable(position *string, limit int64) (*[]string, *string) {
+func BuildTransGlobalScanList() (*as.Record, error) {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
+
+	var record *as.Record
 
 	policy := as.NewScanPolicy()
 	policy.MaxConcurrentNodes = 0
 	policy.IncludeBinData = true
-	policy.MaxRecords = limit + 1
 
-	recs, err := client.ScanAll(policy, SCHEMA, TransactionGlobal)
+	listTimestamp := time.Now().UnixNano()
+	listPolicy := as.NewListPolicy(as.ListOrderOrdered, as.ListWriteFlagsAddUnique)
+
+	listKey, err := as.NewKey(SCHEMA, "listpaganation", listTimestamp)
 
 	if err != nil {
-		logger.Errorf("ScanTransGlobalTable: %s", err)
-		return nil, nil
+		return nil, err
 	}
 
-	var results []string
-	var pos string
-	var counter = int64(0)
-	for res := range recs.Results() {
+	ok, err := client.Delete(nil, listKey)
+	if err != nil {
+		return nil, err
+	}
 
-		if res.Err != nil {
-			// handle error here
-			logger.Errorf("unable to read record, %s", res.Err)
-			// if you want to exit, cancel the recordset to release the resources
-			err := recs.Close()
-			if err != nil {
-				continue
-			}
-		} else {
-			if counter < limit {
-				logger.Debugf("ScanTransGlobalTable: record counter %d", counter)
-				trans := convertAerospikeRecordToTransGlobalRecord(res.Record)
-				//id := res.Record.Key.Value().String()
-				logger.Infof("ScanTransGlobalTable: retrieved key: %s with gid", res.Record.Key.String(), res.Record.Bins["gid"])
-				logger.Debugf("ScanTransGlobalTable: record retrieved, %v", trans)
-				results = append(results, trans.String())
-			}
-			pos = res.Record.Key.String()
-			logger.Debugf("ScanTransGlobalTable: position value, %s", res.Record.Key.String())
+	if ok == true {
+		logger.Debugf("BuildTransGlobalScanList: delete okay (%t)", ok)
+	}
+
+	// Build new list
+	recs, err := client.ScanAll(policy, SCHEMA, TransactionGlobal, "xid", "gid")
+	if err != nil {
+		logger.Errorf("BuildTransGlobalScanList: %s", err)
+		return nil, err
+	}
+
+	for rec := range recs.Results() {
+		bins := rec.Record.Bins
+		txid := bins["xid"]
+		gid := bins["gid"]
+		var itemList []interface{}
+		itemList = append(itemList, txid, gid)
+		record, err = client.Operate(nil, listKey, as.ListAppendWithPolicyOp(listPolicy, "xid_list", itemList))
+		if err != nil {
+			dtmimp.E2P(err)
 		}
-		counter++
 	}
-	if limit > 1 && counter < limit {
-		pos = ""
-		logger.Debugf("ScanTransGlobalTable: limit is > 1 and counter < %d", limit)
-	}
-	if limit == 1 && *position != "" {
-		pos = ""
-		logger.Debugf("ScanTransGlobalTable: limit is 1 and position is not empty")
+	return record, nil
+}
+
+// Todo clean this code up the pagination is working but it is miserable bad code.
+
+// ScanTransGlobalTable
+func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobalStore, *string) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	record, err := BuildTransGlobalScanList()
+	dtmimp.E2P(err)
+
+	listRecord, err := client.Get(nil, record.Key, "xid_list")
+	//listRecord, err := client.Operate(nil, record.Key, as.ListGetByIndexOp("xid_list", 0, as.ListReturnTypeRank, as.CtxListIndex(0)))
+	bins := listRecord.Bins
+	list := bins["xid_list"].([]interface{})
+
+	var resultList []storage.TransGlobalStore
+	var pos string
+
+	if *position == "" {
+		index := int64(0)
+		for index < limit && index < int64(len(list)) {
+			itemList := list[index].([]interface{})
+			txid := itemList[0]
+			gid := itemList[1]
+			logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
+			tran := GetTransGlobalStore(gid.(string))
+			resultList = append(resultList, *tran)
+			index++
+		}
+		if index < int64(len(list)) {
+			itemList := list[index].([]interface{})
+			gid := itemList[1]
+			pos = gid.(string)
+		}
+		logger.Debugf("ScanTransGlobalTable: exited for loop index(%d) and limit(%d) next position(%s)", index, limit, pos)
+	} else {
+		// Need to go find it in the list
+		for i, item := range list {
+			itemList := item.([]interface{})
+			gid := itemList[1]
+			if gid == *position {
+				logger.Debugf("ScanTransGlobalTable: found requested position(%s) at index(%d)", *position, i)
+				index := int64(i)
+				if index+1 < int64(len(list)) {
+					index++
+				} else {
+					logger.Debugf("ScanTransGlobalTable: breaking out cause we index out of range(%d) array length(%d)", index, int64(len(list)))
+					break
+				}
+				counter := int64(0)
+				for counter < limit && index < int64(len(list)) {
+					itemList := list[index].([]interface{})
+					txid := itemList[0]
+					gid := itemList[1]
+					logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
+					tran := GetTransGlobalStore(gid.(string))
+					resultList = append(resultList, *tran)
+					counter++
+					if counter < limit {
+						index++
+					}
+				}
+				length := (int64(len(list)))
+				logger.Debugf("ScanTransGlobalTable: found requested length(%d) at index(%d)", length, index)
+				if index < length {
+					itemList := list[index].([]interface{})
+					gid := itemList[1]
+					pos = gid.(string)
+					logger.Debugf("ScanTransGlobalTable: reached limit(%d) setting pos (%s)", limit, pos)
+				} else {
+					pos = ""
+				}
+			}
+		}
 	}
 
-	return &results, &pos
+	return &resultList, &pos
 }
 
 func LockOneGlobalTransString(expireIn time.Duration) *string {
@@ -556,7 +636,6 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 
 	queryPolicy := as.NewQueryPolicy()
 	equalOwner := as.ExpEq(as.ExpStringBin("owner"), as.ExpStringVal(owner))
-	//filter := as.NewEqualFilter("owner", owner)
 	queryPolicy.FilterExpression = equalOwner
 	queryPolicy.MaxRecords = 1
 
@@ -663,10 +742,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 		hasRemaining = false
 		return
 	}
-	//if succeedCount < limit && succeedCount != 0 {
-	//	hasRemaining = true
-	//	return
-	//}
+
 	if succeedCount <= limit && succeedCount != 0 {
 		logger.Debugf("ResetCronTimeGlobalTran: succeedCount(%d) == limit(%d)", succeedCount, limit)
 		//policy.MaxRecords = int64(1)
@@ -902,7 +978,7 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 
 	for _, branch := range branches {
 
-		xid := xid.New()
+		txid := xid.New()
 		key, err := as.NewKey(SCHEMA, TransactionBranchOp, branch.BranchID)
 		dtmimp.E2P(err)
 
@@ -929,7 +1005,7 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 		}
 
 		bins := as.BinMap{
-			"xid":             xid,
+			"xid":             txid,
 			"gid":             branch.Gid,
 			"url":             branch.URL,
 			"bin_data":        branch.BinData,

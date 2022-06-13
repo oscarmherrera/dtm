@@ -83,24 +83,20 @@ func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 }
 
 // ScanTransGlobalStores lists GlobalTrans data
+// Todo need to implement pagination
 func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.TransGlobalStore {
+
 	logger.Debugf("calling ScanTransGlobalStores: positiion: %s, limit: %d", *position, limit)
 	results, pos := ScanTransGlobalTable(position, limit)
 
 	*position = *pos
-	logger.Debugf("ScanTransGlobalStores: position value, %s", position)
-	globals := []storage.TransGlobalStore{}
-
-	if results == nil {
-		return globals
+	if *pos == "" {
+		logger.Debugf("ScanTransGlobalStores: position value is empty")
+	} else {
+		logger.Debugf("ScanTransGlobalStores: position value, %s", *position)
 	}
 
-	for _, v := range *results {
-		global := storage.TransGlobalStore{}
-		dtmimp.MustUnmarshalString(v, &global)
-		globals = append(globals, global)
-	}
-	return globals
+	return *results
 }
 
 // FindBranches finds Branch data by gid
