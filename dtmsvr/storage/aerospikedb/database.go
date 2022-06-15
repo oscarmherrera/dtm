@@ -189,11 +189,13 @@ func CreateTransGlobalSet() {
 }
 
 func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error {
+	logger.Debugf("NewTransGlobal: with gid %s and %d branches", global.Gid, len(*branches))
+
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
 	var trans TransGlobal
-	logger.Debugf("NewTransGlobal: with gid %s", global.Gid)
+
 	trans.id = xid.New()
 	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
 	dtmimp.E2P(err)
@@ -206,10 +208,16 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 		"next_cron_time": next_cron_time,
 	}
 
+	if global.TransType == "" {
+		logger.Debugf("ERROR ERROR ERROR trans_type is empty")
+		dtmimp.E2P(errors.New("ERROR ERROR ERROR trans_type is empty"))
+	}
+
 	bins := as.BinMap{
 		"xid":            trans.id.Bytes(),
 		"gid":            global.Gid,
 		"status":         global.Status,
+		"trans_type":     global.TransType,
 		"create_time":    now,
 		"next_cron_time": next_cron_time,
 		"st_nxt_ctime":   cdtStatusNextCronTime,
@@ -226,7 +234,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 		return err
 	}
 
-	logger.Debugf("NewTransGlobal: create gid: %s", global.Gid)
+	logger.Debugf("NewTransGlobal: created gid: %s", global.Gid)
 	return nil
 }
 
@@ -379,16 +387,21 @@ func getTransGlobalBranches(gid string) *[]xid.ID {
 		logger.Errorf("GetTransGlobal: %s", err)
 		return nil
 	}
-	bl := record.Bins["branches"].([]interface{})
+
 	var branchList []xid.ID
-	for _, b := range bl {
-		xidBytes := b.([]byte)
-		txid, err := xid.FromBytes(xidBytes)
-		if err != nil {
-			logger.Errorf("GetTransGlobal: %s", err)
-			return nil
+	if record.Bins["branches"] != nil {
+		bl := record.Bins["branches"].([]interface{})
+
+		for _, b := range bl {
+			xidBytes := b.([]byte)
+			txid, err := xid.FromBytes(xidBytes)
+			if err != nil {
+				logger.Errorf("GetTransGlobal: %s", err)
+				return nil
+			}
+			branchList = append(branchList, txid)
 		}
-		branchList = append(branchList, txid)
+
 	}
 
 	return &branchList
@@ -826,7 +839,7 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 		BasePolicy: as.BasePolicy{
 			TotalTimeout: 200 * time.Millisecond,
 		},
-		RecordExistsAction: as.REPLACE,
+		RecordExistsAction: as.UPDATE_ONLY,
 		GenerationPolicy:   0,
 		CommitLevel:        0,
 		Generation:         0,
@@ -991,7 +1004,7 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
 	policy.TotalTimeout = 200 * time.Millisecond
-	policy.RecordExistsAction = as.REPLACE
+	policy.RecordExistsAction = as.UPDATE
 
 	var branchXIDList []xid.ID
 
@@ -1177,6 +1190,17 @@ func convertASRecordToTransBranchStore(asRecord *as.Record) *storage.TransBranch
 		//FinishTime:   &finishTime,
 		//RollbackTime: &rollbackTime,
 	}
+
+	if asRecord.Bins["create_time"] != nil {
+		createTime := convertASIntInterfaceToTime(asRecord.Bins["create_time"])
+		tranBranch.CreateTime = &createTime
+	}
+
+	if asRecord.Bins["update_time"] != nil {
+		updateTime := convertASIntInterfaceToTime(asRecord.Bins["update_time"])
+		tranBranch.CreateTime = &updateTime
+	}
+
 	if asRecord.Bins["finish_time"] != nil {
 		finishTime := convertASIntInterfaceToTime(asRecord.Bins["finish_time"])
 		tranBranch.FinishTime = &finishTime

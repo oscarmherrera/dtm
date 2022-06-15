@@ -114,6 +114,7 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 		branches = append(branches, v)
 	}
 
+	logger.Debugf("FindBranches: found %d branches", len(branches))
 	return branches
 }
 
@@ -125,7 +126,7 @@ func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []st
 
 // MaySaveNewTrans creates a new trans
 func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []storage.TransBranchStore) error {
-
+	logger.Debugf("MaySaveNewTrans: request new trans gloval gid(%s) with %d branches", global.Gid, len(branches))
 	exist := CheckTransGlobalTableForGIDExists(global.Gid)
 	logger.Debugf("MaySaveNewTrans: checking if gid(%s) exists(%t)", global.Gid, exist)
 	if exist == true {
@@ -137,6 +138,7 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 		return err
 	}
 
+	logger.Debugf("MaySaveNewTrans: create and retrieved %d branches", len(*branchXIDList))
 	err = NewTransGlobal(global, branchXIDList)
 	if err != nil {
 		return err
