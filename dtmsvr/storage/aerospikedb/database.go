@@ -22,25 +22,6 @@ var TransactionBranchOp = "trans_branch_op"
 type TEXT string
 type BYTEA string
 
-type TransGlobal struct {
-	id              xid.ID
-	gid             string //[128]byte
-	trans_type      string //[45]byte
-	status          string //[45]byte
-	query_prepared  string //[128]byte
-	protocol        string //[45]byte
-	create_time     int64
-	update_time     int64
-	finish_time     int64
-	rollback_time   int64
-	options         string //[1024]byte
-	custom_data     string //[256]byte
-	nxt_cron_intrvl int
-	next_cron_time  int64
-	ext_data        TEXT
-	owner           string //[256]byte
-}
-
 func getTransGlobalTableBins() *[]string {
 	bins := []string{
 		"xid",
@@ -116,35 +97,35 @@ func CreateTransGlobalSet() {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	var trans TransGlobal
+	var trans storage.TransGlobalStore
 
-	trans.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, trans.id.String())
+	txid := xid.New()
+	key, err := as.NewKey(SCHEMA, TransactionGlobal, txid.Bytes())
 	dtmimp.E2P(err)
 
 	cdtStatusNextCronTime := map[string]interface{}{
-		"status":         trans.status,
-		"next_cron_time": trans.next_cron_time,
+		"status":         trans.Status,
+		"next_cron_time": 0,
 	}
 
 	branches := []string{}
 
 	bins := as.BinMap{
-		"xid":             trans.id.Bytes(),
-		"gid":             trans.gid,
-		"trans_type":      trans.trans_type,
-		"status":          trans.status,
-		"query_prepared":  trans.query_prepared,
-		"protocol":        trans.protocol,
-		"create_time":     trans.create_time,
-		"update_time":     trans.update_time,
-		"finish_time":     trans.finish_time,
-		"rollback_time":   trans.rollback_time,
-		"options":         trans.options,
-		"custom_data":     trans.custom_data,
-		"next_cron_intvl": trans.nxt_cron_intrvl,
-		"next_cron_time":  trans.next_cron_time,
-		"owner":           trans.owner,
+		"xid":             txid,
+		"gid":             trans.Gid,
+		"trans_type":      trans.TransType,
+		"status":          trans.Status,
+		"query_prepared":  trans.QueryPrepared,
+		"protocol":        trans.Protocol,
+		"create_time":     0,
+		"update_time":     0,
+		"finish_time":     0,
+		"rollback_time":   0,
+		"options":         trans.Options,
+		"custom_data":     trans.CustomData,
+		"next_cron_intvl": trans.NextCronInterval,
+		"next_cron_time":  0,
+		"owner":           trans.Owner,
 		"branches":        branches,
 		"st_nxt_ctime":    cdtStatusNextCronTime,
 	}
@@ -190,18 +171,16 @@ func CreateTransGlobalSet() {
 
 func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error {
 	logger.Debugf("NewTransGlobal: with gid %s and %d branches", global.Gid, len(*branches))
+	logger.Debugf("NewTransGlobal: create time %s", global.CreateTime)
 
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	var trans TransGlobal
-
-	trans.id = xid.New()
+	txid := xid.New()
 	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
 	dtmimp.E2P(err)
 
 	next_cron_time := global.NextCronTime.UnixNano()
-	now := time.Now().UnixNano()
 
 	cdtStatusNextCronTime := map[string]interface{}{
 		"status":         global.Status,
@@ -213,12 +192,25 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 		dtmimp.E2P(errors.New("ERROR ERROR ERROR trans_type is empty"))
 	}
 
+	var finishTime int64
+	if global.FinishTime != nil {
+		finishTime = global.FinishTime.UnixNano()
+	}
+
+	var rollbackTime int64
+	if global.RollbackTime != nil {
+		rollbackTime = global.RollbackTime.UnixNano()
+	}
+
 	bins := as.BinMap{
-		"xid":            trans.id.Bytes(),
+		"xid":            txid,
 		"gid":            global.Gid,
 		"status":         global.Status,
 		"trans_type":     global.TransType,
-		"create_time":    now,
+		"create_time":    global.CreateTime.UnixNano(),
+		"update_time":    global.UpdateTime.UnixNano(),
+		"finish_time":    finishTime,
+		"rollback_time":  rollbackTime,
 		"next_cron_time": next_cron_time,
 		"st_nxt_ctime":   cdtStatusNextCronTime,
 		"branches":       *branches,
@@ -227,7 +219,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
 	policy.TotalTimeout = 200 * time.Millisecond
-	policy.RecordExistsAction = as.REPLACE
+	policy.RecordExistsAction = as.UPDATE
 
 	err = client.Put(policy, key, bins)
 	if err != nil {
@@ -265,6 +257,16 @@ func convertAerospikeRecordToTransGlobalRecord(asRecord *as.Record) *storage.Tra
 	tranRecord := &storage.TransGlobalStore{
 		ModelBase: dtmutil.ModelBase{},
 		Gid:       asRecord.Bins["gid"].(string),
+	}
+
+	if asRecord.Bins["create_time"] != nil {
+		createTime := convertASIntInterfaceToTime(asRecord.Bins["create_time"])
+		tranRecord.CreateTime = &createTime
+	}
+
+	if asRecord.Bins["update_time"] != nil {
+		updateTime := convertASIntInterfaceToTime(asRecord.Bins["update_time"])
+		tranRecord.UpdateTime = &updateTime
 	}
 
 	if asRecord.Bins["trans_type"] != nil {
@@ -325,20 +327,6 @@ func convertAerospikeRecordToTransGlobalRecord(asRecord *as.Record) *storage.Tra
 	return tranRecord
 }
 
-// convertASIntInterfaceToTime
-// Converts an aerospike integer interface to a go time value
-func convertASIntInterfaceToTime(asIntf interface{}) time.Time {
-	var timeValue int64
-
-	if _, ok := asIntf.(int); ok {
-		timeValue = int64(asIntf.(int))
-	} else {
-		timeValue = asIntf.(int64)
-	}
-	value := time.Unix(0, timeValue)
-	return value
-}
-
 func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
@@ -364,47 +352,6 @@ func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 	transStore := convertAerospikeRecordToTransGlobalRecord(record)
 
 	return transStore
-}
-
-// getTransGlobalBranches
-// @Description: get the branchs bin for a Global Transaction and returns a list of xids for branches
-func getTransGlobalBranches(gid string) *[]xid.ID {
-	client := aerospikeGet()
-	defer connectionPools.Put(client)
-
-	policy := &as.BasePolicy{}
-	if gid == "" {
-		logger.Infof("GetTransGlobal: gid is empty")
-	}
-	logger.Debugf("GetTransGlobal: gid being retrieved: %s", gid)
-
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
-	dtmimp.E2P(err)
-
-	bins := getTransGlobalTableBins()
-	record, err := client.Get(policy, key, *bins...)
-	if err != nil {
-		logger.Errorf("GetTransGlobal: %s", err)
-		return nil
-	}
-
-	var branchList []xid.ID
-	if record.Bins["branches"] != nil {
-		bl := record.Bins["branches"].([]interface{})
-
-		for _, b := range bl {
-			xidBytes := b.([]byte)
-			txid, err := xid.FromBytes(xidBytes)
-			if err != nil {
-				logger.Errorf("GetTransGlobal: %s", err)
-				return nil
-			}
-			branchList = append(branchList, txid)
-		}
-
-	}
-
-	return &branchList
 }
 
 func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
@@ -493,7 +440,6 @@ func BuildTransGlobalScanList() (*as.Record, error) {
 }
 
 // Todo clean this code up the pagination is working but it is miserable bad code.
-
 // ScanTransGlobalTable
 func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobalStore, *string) {
 	client := aerospikeGet()
@@ -640,6 +586,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 		if (status == "prepared" || status == "aborting" || status == "submitted") && (expireValue.UnixNano() < expired) {
 			if counter < 1 {
 				next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
+				bins["update_time"] = time.Now().UnixNano()
 				bins["next_cron_time"] = next
 				bins["owner"] = owner
 				err = client.Put(updatePolicy, id, bins)
@@ -864,20 +811,6 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 	}
 }
 
-type TransBranchOp struct {
-	id          xid.ID
-	gid         string //[128]byte
-	url         string //[1024]byte
-	data        TEXT
-	bin_data    BYTEA
-	branch_id   string //[128]byte
-	op          string //[45]byte
-	status      string //[45]byte
-	finish_time int64
-	create_time int64
-	update_time int64
-}
-
 func DropTableTransBranchOp() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
@@ -925,30 +858,30 @@ func CreateTransBranchOpSet() {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	var transBranch TransBranchOp
+	var transBranch storage.TransBranchStore
 
-	transBranch.id = xid.New()
-	key, err := as.NewKey(SCHEMA, TransactionBranchOp, transBranch.id.String())
+	txid := xid.New()
+	key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
 	dtmimp.E2P(err)
 
 	gid_branch_uniq := map[string]interface{}{
-		"gid":       transBranch.gid,
-		"branch_id": transBranch.branch_id,
-		"op":        transBranch.op,
+		"gid":       transBranch.Gid,
+		"branch_id": transBranch.BranchID,
+		"op":        transBranch.Op,
 	}
 
 	bins := as.BinMap{}
-	bins["xid"] = transBranch.id
-	bins["gid"] = transBranch.gid
-	bins["url"] = transBranch.url
-	bins["data"] = transBranch.data
-	bins["bin_data"] = transBranch.bin_data
-	bins["branch_id"] = transBranch.branch_id
-	bins["op"] = transBranch.op
-	bins["status"] = transBranch.status
-	bins["finish_time"] = transBranch.finish_time
-	bins["create_time"] = transBranch.create_time
-	bins["update_time"] = transBranch.update_time
+	bins["xid"] = txid
+	bins["gid"] = transBranch.Gid
+	bins["url"] = transBranch.URL
+	//bins["data"] = transBranch.
+	bins["bin_data"] = transBranch.BinData
+	bins["branch_id"] = transBranch.BranchID
+	bins["op"] = transBranch.Op
+	bins["status"] = transBranch.Status
+	bins["finish_time"] = 0
+	bins["create_time"] = 0
+	bins["update_time"] = 0
 	bins["gid_branch_uniq"] = gid_branch_uniq
 
 	policy := as.NewWritePolicy(0, 0)
@@ -980,6 +913,47 @@ func CreateTransBranchOpSet() {
 	dtmimp.E2P(errTruncate)
 }
 
+// getTransGlobalBranches
+// @Description: get the branchs bin for a Global Transaction and returns a list of xids for branches
+func getTransGlobalBranches(gid string) *[]xid.ID {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	policy := &as.BasePolicy{}
+	if gid == "" {
+		logger.Infof("GetTransGlobal: gid is empty")
+	}
+	logger.Debugf("GetTransGlobal: gid being retrieved: %s", gid)
+
+	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
+	dtmimp.E2P(err)
+
+	bins := getTransGlobalTableBins()
+	record, err := client.Get(policy, key, *bins...)
+	if err != nil {
+		logger.Errorf("GetTransGlobal: %s", err)
+		return nil
+	}
+
+	var branchList []xid.ID
+	if record.Bins["branches"] != nil {
+		bl := record.Bins["branches"].([]interface{})
+
+		for _, b := range bl {
+			xidBytes := b.([]byte)
+			txid, err := xid.FromBytes(xidBytes)
+			if err != nil {
+				logger.Errorf("GetTransGlobal: %s", err)
+				return nil
+			}
+			branchList = append(branchList, txid)
+		}
+
+	}
+
+	return &branchList
+}
+
 func getBranchOpSetBins() *[]string {
 	bins := []string{
 		"xid",
@@ -990,6 +964,7 @@ func getBranchOpSetBins() *[]string {
 		"op",
 		"status",
 		"finish_time",
+		"rollback_time",
 		"create_time",
 		"update_time",
 		"gid_branch_uniq",
@@ -1022,9 +997,13 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 		}
 
 		var finishTime int64
-
 		if branch.FinishTime != nil {
 			finishTime = branch.FinishTime.UnixNano()
+		}
+
+		var rollbackTime int64
+		if branch.RollbackTime != nil {
+			rollbackTime = branch.RollbackTime.UnixNano()
 		}
 
 		var createTime int64
@@ -1046,6 +1025,7 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 			"op":              branch.Op,
 			"status":          branch.Status,
 			"finish_time":     finishTime,
+			"rollback_time":   rollbackTime,
 			"create_time":     createTime,
 			"update_time":     updateTime,
 			"gid_branch_uniq": gid_branch_uniq,

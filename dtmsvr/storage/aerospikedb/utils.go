@@ -32,44 +32,33 @@ func DecodeKey(keyValue []byte) (*globalTxId, error) {
 	copy(xidValue, keyValue[0:11])
 	copy(timeOutValue, keyValue[12:19])
 
-	xid, err := xid.FromBytes(xidValue)
+	txid, err := xid.FromBytes(xidValue)
 	dtmimp.E2P(err)
 
 	var timeOut time.Time
-	timeOut.GobDecode(timeOutValue)
+	err = timeOut.GobDecode(timeOutValue)
+	if err != nil {
+		return nil, err
+	}
 
 	gTxId := &globalTxId{
-		xid:     xid,
+		xid:     txid,
 		timeOut: timeOut,
 	}
 
 	return gTxId, nil
 }
 
-//func GetConnection(asdb *Store) (*as.Client, error) {
-//	var connected bool
-//	var client *as.Client
-//
-//	connected = false
-//
-//	for _, node := range *asdb.endpoints {
-//
-//		c, err := as.NewClient(node.IP.String(), node.Port)
-//		if err != nil {
-//			logger.Warnf("error connecting to node: %s", err)
-//		} else {
-//			if c.IsConnected() {
-//				logger.Infof("connected to node IP: %s, Port: %d", node.IP.String(), node.Port)
-//				connected = true
-//				client = c
-//				break
-//			}
-//		}
-//	}
-//
-//	if !connected {
-//		return nil, errors.New("unable to connected to any aerospike database server")
-//	}
-//
-//	return client, nil
-//}
+// convertASIntInterfaceToTime
+// Converts an aerospike integer interface to a go time value
+func convertASIntInterfaceToTime(asIntf interface{}) time.Time {
+	var timeValue int64
+
+	if _, ok := asIntf.(int); ok {
+		timeValue = int64(asIntf.(int))
+	} else {
+		timeValue = asIntf.(int64)
+	}
+	value := time.Unix(0, timeValue)
+	return value
+}
