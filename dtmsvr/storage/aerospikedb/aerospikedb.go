@@ -73,13 +73,12 @@ func (s *Store) PopulateData(skipDrop bool) {
 func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 	logger.Debugf("calling FindTransGlobalStore: %s", gid)
 
-	result := GetTransGlobal(gid)
+	result := getTransGlobalStore(gid)
 	if result == nil {
 		return nil
 	}
-	trans := &storage.TransGlobalStore{}
-	dtmimp.MustUnmarshalString(*result, trans)
-	return trans
+
+	return result
 }
 
 // ScanTransGlobalStores lists GlobalTrans data
@@ -112,17 +111,15 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 
 	//branches := make([]storage.TransBranchStore, len(*results))
 	for _, v := range *results {
-		b := storage.TransBranchStore{}
-		dtmimp.MustUnmarshalString(v, &b)
-		branches = append(branches, b)
+		branches = append(branches, v)
 	}
 
 	return branches
 }
 
-// UpdateBranches updates branches info
 func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []string) (int, error) {
 	logger.Infof("Unimplemented, here is the data branches: %v with updates: %v", branches, updates)
+	dtmimp.E2P(errors.New("Unimplemented function UpdateBranches"))
 	return 0, nil // not implemented
 }
 
@@ -135,18 +132,12 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 		return errors.New("UNIQUE_CONFLICT")
 	}
 
-	var branchGidList []string
-	for _, v := range branches {
-		logger.Debugf("MaySaveNewTrans: saving global trans for branch gid(%s)", v.Gid)
-		branchGidList = append(branchGidList, v.Gid)
-	}
-
-	err := NewTransGlobal(global, &branchGidList)
+	branchXIDList, err := newTransBranchOpSet(branches)
 	if err != nil {
 		return err
 	}
 
-	err = NewTransBranchOpSet(branches)
+	err = NewTransGlobal(global, branchXIDList)
 	if err != nil {
 		return err
 	}

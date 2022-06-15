@@ -1,6 +1,8 @@
 package aerospikedb
 
 import (
+	"errors"
+	"fmt"
 	as "github.com/aerospike/aerospike-client-go/v5"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -186,7 +188,7 @@ func CreateTransGlobalSet() {
 
 }
 
-func NewTransGlobal(global *storage.TransGlobalStore, branches *[]string) error {
+func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -329,7 +331,7 @@ func convertASIntInterfaceToTime(asIntf interface{}) time.Time {
 	return value
 }
 
-func GetTransGlobalStore(gid string) *storage.TransGlobalStore {
+func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -356,17 +358,40 @@ func GetTransGlobalStore(gid string) *storage.TransGlobalStore {
 	return transStore
 }
 
-func GetTransGlobal(gid string) *string {
-	transStore := GetTransGlobalStore(gid)
-	if transStore == nil {
-		logger.Debugf("GetTransGlobal: no record found")
+// getTransGlobalBranches
+// @Description: get the branchs bin for a Global Transaction and returns a list of xids for branches
+func getTransGlobalBranches(gid string) *[]xid.ID {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	policy := &as.BasePolicy{}
+	if gid == "" {
+		logger.Infof("GetTransGlobal: gid is empty")
+	}
+	logger.Debugf("GetTransGlobal: gid being retrieved: %s", gid)
+
+	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
+	dtmimp.E2P(err)
+
+	bins := getTransGlobalTableBins()
+	record, err := client.Get(policy, key, *bins...)
+	if err != nil {
+		logger.Errorf("GetTransGlobal: %s", err)
 		return nil
 	}
-	resultString := transStore.String()
-	logger.Debugf("GetTransGlobal: raw as record: %s", transStore.String())
-	logger.Debugf("GetTransGlobal: retrieve record result string: %s", resultString)
+	bl := record.Bins["branches"].([]interface{})
+	var branchList []xid.ID
+	for _, b := range bl {
+		xidBytes := b.([]byte)
+		txid, err := xid.FromBytes(xidBytes)
+		if err != nil {
+			logger.Errorf("GetTransGlobal: %s", err)
+			return nil
+		}
+		branchList = append(branchList, txid)
+	}
 
-	return &resultString
+	return &branchList
 }
 
 func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
@@ -382,7 +407,7 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	bins := getTransGlobalTableBins()
 	record, err := client.Get(policy, key, *bins...)
 	dtmimp.E2P(err)
-	logger.Debugf("UpdateGlobalStatus: retrieve record gid: %d", record.Bins["gid"])
+	logger.Debugf("UpdateGlobalStatus: retrieve record gid: %s", record.Bins["gid"].(string))
 	resultRecordBins := record.Bins
 	resultRecordBins["status"] = newStatus
 	if finished == true {
@@ -479,7 +504,7 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 			txid := itemList[0]
 			gid := itemList[1]
 			logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
-			tran := GetTransGlobalStore(gid.(string))
+			tran := getTransGlobalStore(gid.(string))
 			resultList = append(resultList, *tran)
 			index++
 		}
@@ -509,7 +534,7 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 					txid := itemList[0]
 					gid := itemList[1]
 					logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
-					tran := GetTransGlobalStore(gid.(string))
+					tran := getTransGlobalStore(gid.(string))
 					resultList = append(resultList, *tran)
 					counter++
 					if counter < limit {
@@ -531,17 +556,6 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 	}
 
 	return &resultList, &pos
-}
-
-func LockOneGlobalTransString(expireIn time.Duration) *string {
-	trans := LockOneGlobalTransTrans(expireIn)
-	if trans != nil {
-		resultString := trans.String()
-		logger.Debugf("LockOneGlobalTrans: locked record %s", resultString)
-		return &resultString
-	}
-
-	return nil
 }
 
 func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
@@ -660,6 +674,8 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 	return resultTrans
 }
 
+// Todo review and optimize this code.
+// ResetCronTimeGlobalTran
 func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
 	logger.Debugf("ResetCronTimeGlobalTran: timeout %v limit(%d)", timeout, limit)
 	client := aerospikeGet()
@@ -737,6 +753,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 		}
 		resultCounter++
 	}
+
 	logger.Debugf("ResetCronTimeGlobalTran: succeedCount (%d) resultsCounter(%d)", succeedCount, resultCounter)
 	if succeedCount == 0 {
 		hasRemaining = false
@@ -967,7 +984,7 @@ func getBranchOpSetBins() *[]string {
 	return &bins
 }
 
-func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
+func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error) {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -976,10 +993,13 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 	policy.TotalTimeout = 200 * time.Millisecond
 	policy.RecordExistsAction = as.REPLACE
 
+	var branchXIDList []xid.ID
+
 	for _, branch := range branches {
 
 		txid := xid.New()
-		key, err := as.NewKey(SCHEMA, TransactionBranchOp, branch.BranchID)
+		key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
+		//key, err := as.NewKey(SCHEMA, TransactionBranchOp, branch.BranchID)
 		dtmimp.E2P(err)
 
 		gid_branch_uniq := map[string]interface{}{
@@ -1020,35 +1040,41 @@ func NewTransBranchOpSet(branches []storage.TransBranchStore) error {
 
 		err = client.Put(policy, key, bins)
 		if err != nil {
-			return err
+			return nil, err
 		}
+
+		branchXIDList = append(branchXIDList, txid)
 	}
-	return nil
+	return &branchXIDList, nil
 }
 
-func GetBranchs(gid string) *[]string {
+// updateBranch
+func updateBranch(gid string, branch storage.TransBranchStore) error {
+	logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) op (%s) status(%s)", branch.Gid, branch.BranchID, branch.Op, branch.Status)
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
 	policy := as.NewQueryPolicy()
+	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
+	branchExp := as.ExpEq(as.ExpStringBin("branch_id"), as.ExpStringVal(branch.BranchID))
+	opExp := as.ExpEq(as.ExpStringBin("op"), as.ExpStringVal(branch.Op))
+	filterExp := as.ExpAnd(gidExp, branchExp, opExp)
 
-	filter := as.NewEqualFilter("gid", gid)
+	policy.FilterExpression = filterExp
 
-	bins := getBranchOpSetBins()
+	var bins = getBranchOpSetBins()
 	statement := &as.Statement{
 		Namespace: SCHEMA,
 		SetName:   TransactionBranchOp,
-		IndexName: "TXMBRANCH_GID",
+		IndexName: "GID_BRANCH_UNIQ",
 		BinNames:  *bins,
-		Filter:    filter,
+		Filter:    nil,
 		TaskId:    0,
 	}
 
 	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
-
-	var results []string
-
+	counter := int(0)
 	for res := range rs.Results() {
 
 		if res.Err != nil {
@@ -1060,16 +1086,85 @@ func GetBranchs(gid string) *[]string {
 				continue
 			}
 		} else {
-			//id := res.Record.Key.Value().String()
-			logger.Infof("retrieved record: %v", res.Record)
-			result := convertASRecordToTransBranchStoreString(res.Record)
-			results = append(results, result)
+			id := res.Record.Key
+			logger.Infof("retrieved key: %s", id)
+
+			bins := res.Record.Bins
+
+			gid_branch_uniq := map[string]interface{}{
+				"gid":       branch.Gid,
+				"branch_id": branch.BranchID,
+				"op":        branch.Op,
+			}
+			// Don't override the transaction ID
+			bins["url"] = branch.URL
+			bins["bin_data"] = branch.BinData
+			bins["op"] = branch.Op
+			bins["status"] = branch.Status
+			bins["finish_time"] = branch.FinishTime.UnixNano()
+			bins["create_time"] = branch.CreateTime.UnixNano()
+			bins["update_time"] = branch.UpdateTime.UnixNano()
+			bins["gid_branch_uniq"] = gid_branch_uniq
+			logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) status(%s)", branch.Gid, branch.BranchID, branch.Status)
+			updatePolicy := &as.WritePolicy{
+				BasePolicy: as.BasePolicy{
+					TotalTimeout: 200 * time.Millisecond,
+				},
+				RecordExistsAction: as.UPDATE_ONLY,
+				GenerationPolicy:   0,
+				CommitLevel:        0,
+				Generation:         0,
+				Expiration:         0,
+				RespondPerEachOp:   false,
+				DurableDelete:      true,
+			}
+			err = client.Put(updatePolicy, id, bins)
+			if err != nil {
+				logger.Errorf("updateBranch: %s", err)
+				return err
+			}
+			counter++
 		}
 	}
+	logger.Debugf("updateBranch: updated %d records", counter)
+
+	return nil
+}
+
+func GetBranchs(gid string) *[]storage.TransBranchStore {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	policy := &as.BasePolicy{}
+
+	branchList := getTransGlobalBranches(gid)
+	if branchList == nil {
+		return nil
+	}
+
+	var results []storage.TransBranchStore
+	var bins = getBranchOpSetBins()
+	for _, branch := range *branchList {
+		txid := branch
+		key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
+		if err != nil {
+			logger.Errorf("GetBranches: %s", err)
+			return nil
+		}
+		record, err := client.Get(policy, key, *bins...)
+		if err != nil {
+			logger.Errorf("GetBranches: %s", err)
+			return nil
+		}
+		logger.Debugf("retrieved record: txid(%v)", record.Key.String())
+		result := convertASRecordToTransBranchStore(record)
+		results = append(results, *result)
+	}
+
 	return &results
 }
 
-func convertASRecordToTransBranchStoreString(asRecord *as.Record) string {
+func convertASRecordToTransBranchStore(asRecord *as.Record) *storage.TransBranchStore {
 
 	tranBranch := storage.TransBranchStore{
 		ModelBase: dtmutil.ModelBase{},
@@ -1092,10 +1187,11 @@ func convertASRecordToTransBranchStoreString(asRecord *as.Record) string {
 		tranBranch.FinishTime = &rollbackTime
 	}
 
-	return tranBranch.String()
+	return &tranBranch
 }
 
 func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.TransBranchStore) error {
+	logger.Debugf("UpdateBranchsWithGIDStatus: gid(%s) status (%s)", gid, status)
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -1106,79 +1202,45 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 
 	policy.FilterExpression = filterExp
 
-	bins := getBranchOpSetBins()
+	var bins = []string{"xid", "gid"}
 	statement := &as.Statement{
 		Namespace: SCHEMA,
-		SetName:   TransactionBranchOp,
-		IndexName: "TXMBRANCH_GID",
-		BinNames:  *bins,
+		SetName:   TransactionGlobal,
+		IndexName: "TXM_GID",
+		BinNames:  bins,
 		Filter:    nil,
 		TaskId:    0,
-	}
-
-	branchMap := make(map[string]storage.TransBranchStore, len(branches))
-	// Convert BranchList to Map to easily be used later
-	for _, branch := range branches {
-		branchMap[branch.BranchID] = branch
 	}
 
 	rs, err := client.Query(policy, statement)
 	dtmimp.E2P(err)
 
-	//var results []string
-	//var updateMap map[as.Key]*as.BinMap
+	var globalGid string
+	counter := int64(0)
+	for rec := range rs.Results() {
+		if rec.Err != nil {
+			logger.Errorf("UpdateBranchsWithGIDStatus: %s", err)
+			return err
+		}
+		bins := rec.Record.Bins
+		globalGid = bins["gid"].(string)
+		txid := bins["xid"]
+		logger.Debugf("UpdateBranchsWithGIDStatus: retrieved gid(%s) xid(%v)", globalGid, txid)
+		counter++
+	}
 
-	for res := range rs.Results() {
+	if counter == 0 {
+		return errors.New(fmt.Sprint("RECORD_NOT_FOUND gid: %s and status %s", gid, status))
+	}
 
-		if res.Err != nil {
-			// handle error here
-			logger.Errorf("unable to read record, %s", res.Err)
-			// if you want to exit, cancel the recordset to release the resources
-			err := rs.Close()
-			if err != nil {
-				continue
-			}
-		} else {
-			id := res.Record.Key
-			logger.Infof("retrieved key: %s", id)
+	if counter != 1 {
+		dtmimp.E2P(errors.New("more than 1 gid returned"))
+	}
 
-			bins := res.Record.Bins
-			b := res.Record.Bins["branch_id"]
-			branchId := b.(string)
-			branch := branchMap[branchId]
-
-			gid_branch_uniq := map[string]interface{}{
-				"gid":       branch.Gid,
-				"branch_id": branch.BranchID,
-				"op":        branch.Op,
-			}
-
-			bins["url"] = branch.URL
-			bins["bin_data"] = branch.BinData
-			bins["op"] = branch.Op
-			bins["status"] = branch.Status
-			bins["finish_time"] = branch.FinishTime.UnixNano()
-			bins["create_time"] = branch.CreateTime.UnixNano()
-			bins["update_time"] = branch.UpdateTime.UnixNano()
-			bins["gid_branch_uniq"] = gid_branch_uniq
-
-			updatePolicy := &as.WritePolicy{
-				BasePolicy: as.BasePolicy{
-					TotalTimeout: 200 * time.Millisecond,
-				},
-				RecordExistsAction: as.UPDATE_ONLY,
-				GenerationPolicy:   0,
-				CommitLevel:        0,
-				Generation:         0,
-				Expiration:         0,
-				RespondPerEachOp:   false,
-				DurableDelete:      true,
-			}
-			err = client.Put(updatePolicy, id, bins)
-			if err != nil {
-				return err
-			}
-			//updateMap[*id] = &bins
+	for _, branch := range branches {
+		err := updateBranch(gid, branch)
+		if err != nil {
+			return err
 		}
 	}
 
