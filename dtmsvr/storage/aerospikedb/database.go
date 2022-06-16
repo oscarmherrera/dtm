@@ -189,7 +189,17 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 
 	if global.TransType == "" {
 		logger.Debugf("ERROR ERROR ERROR trans_type is empty")
-		dtmimp.E2P(errors.New("ERROR ERROR ERROR trans_type is empty"))
+		//dtmimp.E2P(errors.New("ERROR ERROR ERROR trans_type is empty"))
+	}
+
+	var createTime int64
+	if global.CreateTime != nil {
+		createTime = global.CreateTime.UnixNano()
+	}
+
+	var updateTime int64
+	if global.UpdateTime != nil {
+		updateTime = global.UpdateTime.UnixNano()
 	}
 
 	var finishTime int64
@@ -207,8 +217,8 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 		"gid":            global.Gid,
 		"status":         global.Status,
 		"trans_type":     global.TransType,
-		"create_time":    global.CreateTime.UnixNano(),
-		"update_time":    global.UpdateTime.UnixNano(),
+		"create_time":    createTime,
+		"update_time":    updateTime,
 		"finish_time":    finishTime,
 		"rollback_time":  rollbackTime,
 		"next_cron_time": next_cron_time,
@@ -359,7 +369,7 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	defer connectionPools.Put(client)
 
 	policy := &as.BasePolicy{}
-	logger.Debugf("UpdateGlobalStatus: gid being retrieved: %s", global.Gid)
+	logger.Debugf("UpdateGlobalStatus: gid being retrieved: %s trying to set status(%s)", global.Gid, newStatus)
 
 	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
 	dtmimp.E2P(err)
@@ -370,8 +380,29 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	logger.Debugf("UpdateGlobalStatus: retrieve record gid: %s", record.Bins["gid"].(string))
 	resultRecordBins := record.Bins
 	resultRecordBins["status"] = newStatus
-	if finished == true {
-		resultRecordBins["finish_time"] = time.Now().UnixNano()
+	//if finished == true {
+	//	resultRecordBins["finish_time"] = time.Now().UnixNano()
+	//}
+
+	for _, v := range updates {
+		switch v {
+		case "update_time":
+			resultRecordBins["update_time"] = global.UpdateTime.UnixNano()
+			logger.Debugf("UpdateGlobalStatus: for gid: %s updating time to (%v)", record.Bins["gid"].(string), global.UpdateTime)
+		case "finish_time":
+			resultRecordBins["finish_time"] = global.FinishTime.UnixNano()
+			logger.Debugf("UpdateGlobalStatus: for gid: %s finish time to (%v)", record.Bins["gid"].(string), global.FinishTime)
+		case "status":
+			resultRecordBins["status"] = newStatus
+			logger.Debugf("UpdateGlobalStatus: for gid: %s status to (%s)", record.Bins["gid"].(string), newStatus)
+		case "rollback_time":
+			resultRecordBins["rollback_time"] = global.RollbackTime.UnixNano()
+			logger.Debugf("UpdateGlobalStatus: for gid: %s rollback_time to (%v)", record.Bins["gid"].(string), global.RollbackTime)
+
+		default:
+			logger.Debugf("UpdateGlobalStatus: unhandled field %s", v)
+			dtmimp.E2P(errors.New("UpdateGlobalStatus: unhandled field for update"))
+		}
 	}
 
 	updatePolicy := &as.WritePolicy{
@@ -585,6 +616,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 
 		if (status == "prepared" || status == "aborting" || status == "submitted") && (expireValue.UnixNano() < expired) {
 			if counter < 1 {
+				logger.Debugf("LockOneGlobalTrans: record found gid(%s) status (%s)", bins["gid"].(string), bins["status"].(string))
 				next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
 				bins["update_time"] = time.Now().UnixNano()
 				bins["next_cron_time"] = next
@@ -597,41 +629,55 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 				}
 				logger.Debugf("LockOneGlobalTrans: locking a trans with gid %s and owner %s", bins["gid"].(string), owner)
 				// found the first one
+				// No go retrieve it and return using the key
+
+				policy := &as.BasePolicy{}
+
+				bins := getTransGlobalTableBins()
+				record, err := client.Get(policy, res.Record.Key, *bins...)
+				if err != nil {
+					logger.Errorf("LockOneGlobalTrans: retrieved found trans gid(%s)", res.Record.Bins["gid"].(string))
+					return nil
+				}
+				resultTrans := convertAerospikeRecordToTransGlobalRecord(record)
 				counter++
+				return resultTrans
+
 			} else {
 				break
 			}
 		}
 	}
-	if counter == 0 {
-		// Didn't find anything so return nil
-		return nil
-	}
+	return nil
+	//if counter == 0 {
+	//	// Didn't find anything so return nil
+	//	return nil
+	//}
+	//
+	//queryPolicy := as.NewQueryPolicy()
+	//equalOwner := as.ExpEq(as.ExpStringBin("owner"), as.ExpStringVal(owner))
+	//queryPolicy.FilterExpression = equalOwner
+	//queryPolicy.MaxRecords = 1
+	//
+	//statement = &as.Statement{
+	//	Namespace: SCHEMA,
+	//	SetName:   TransactionGlobal,
+	//	IndexName: "TXM_GID",
+	//	BinNames:  *bins,
+	//	Filter:    nil,
+	//	TaskId:    0,
+	//}
+	//
+	//rs2, err := client.Query(policy, statement)
+	//dtmimp.E2P(err)
+	//
+	//var resultTrans *storage.TransGlobalStore
+	//for res := range rs2.Results() {
+	//	resultTrans = convertAerospikeRecordToTransGlobalRecord(res.Record)
+	//	break
+	//}
 
-	queryPolicy := as.NewQueryPolicy()
-	equalOwner := as.ExpEq(as.ExpStringBin("owner"), as.ExpStringVal(owner))
-	queryPolicy.FilterExpression = equalOwner
-	queryPolicy.MaxRecords = 1
-
-	statement = &as.Statement{
-		Namespace: SCHEMA,
-		SetName:   TransactionGlobal,
-		IndexName: "TXM_GID",
-		BinNames:  *bins,
-		Filter:    nil,
-		TaskId:    0,
-	}
-
-	rs2, err := client.Query(policy, statement)
-	dtmimp.E2P(err)
-
-	var resultTrans *storage.TransGlobalStore
-	for res := range rs2.Results() {
-		resultTrans = convertAerospikeRecordToTransGlobalRecord(res.Record)
-		break
-	}
-
-	return resultTrans
+	//return resultTrans
 }
 
 // Todo review and optimize this code.
