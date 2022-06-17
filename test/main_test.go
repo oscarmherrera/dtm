@@ -30,7 +30,6 @@ func exitIf(code int) {
 func TestMain(m *testing.M) {
 	config.MustLoadConfig("../test.yml")
 	logger.InitLog("debug")
-	dtmcli.SetCurrentDBType(busi.BusiConf.Driver)
 	dtmsvr.TransProcessedTestChan = make(chan string, 1)
 	dtmsvr.NowForwardDuration = 0 * time.Second
 	dtmsvr.CronForwardDuration = 180 * time.Second
@@ -41,18 +40,17 @@ func TestMain(m *testing.M) {
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
 	tenv := os.Getenv("TEST_STORE")
+
+  conf.Store.Driver = tenv
+  conf.Store.Host = "localhost"
 	switch tenv {
 	case "boltdb":
 		conf.Store.Driver = "boltdb"
 	case "mysql":
-		conf.Store.Driver = "mysql"
-		conf.Store.Host = "localhost"
 		conf.Store.Port = 3306
 		conf.Store.User = "root"
 		conf.Store.Password = ""
 	case "aerospike":
-		conf.Store.Driver = "aerospike"
-		conf.Store.Host = "localhost"
 		conf.Store.User = "admin"
 		conf.Store.Password = "admin"
 		conf.Store.Port = 3000
@@ -60,33 +58,25 @@ func TestMain(m *testing.M) {
 		conf.Store.MaxIdleConns = 20
 		conf.Store.AerospikeNamespace = "test"
 		conf.Store.AerospikeSeedSrv = "10.211.55.200:3000"
+  case "Postgres":
+    conf.Store.Port = 5432
+		conf.Store.User = "postgres"
+		conf.Store.Password = "mysecretpassword"  
 	default:
-		conf.Store.Driver = "redis"
-		conf.Store.Host = "localhost"
 		conf.Store.User = ""
 		conf.Store.Password = ""
 		conf.Store.Port = 6379
 	}
 
-	//if tenv == "boltdb" {
-	//	conf.Store.Driver = "boltdb"
-	//} else if tenv == "mysql" {
-	//	conf.Store.Driver = "mysql"
-	//	conf.Store.Host = "localhost"
-	//	conf.Store.Port = 3306
-	//	conf.Store.User = "root"
-	//	conf.Store.Password = ""
-	//} else {
-	//	conf.Store.Driver = "redis"
-	//	conf.Store.Host = "localhost"
-	//	conf.Store.User = ""
-	//	conf.Store.Password = ""
-	//	conf.Store.Port = 6379
-	//}
+  conf.Store.Db = ""
 	registry.WaitStoreUp()
 
 	dtmsvr.PopulateDB(false)
-	//dtmsvr.PopulateDB(true)
+	conf.Store.Db = "dtm" // after populateDB, set current db to dtm
+	if tenv == "postgres" {
+		busi.BusiConf = conf.Store.GetDBConf()
+		dtmcli.SetCurrentDBType(tenv)
+	}
 	go dtmsvr.StartSvr()
 
 	busi.PopulateDB(false, "aerospike")
