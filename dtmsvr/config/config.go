@@ -60,6 +60,12 @@ type Store struct {
 	DataExpire         int64  `yaml:"DataExpire" default:"604800"`        // Trans data will expire in 7 days. only for redis/boltdb.
 	FinishedDataExpire int64  `yaml:"FinishedDataExpire" default:"86400"` // finished Trans data will expire in 1 days. only for redis.
 	RedisPrefix        string `yaml:"RedisPrefix" default:"{a}"`          // Redis storage prefix. store data to only one slot in cluster
+
+	AerospikeNamespace string `yaml:"AerospikePrefix" default:"test"`     // Use the temp namespace
+	AerospikeSeedSrv   string `yaml:"AerospikeSeedSrv" default:"10.0.1.150"`
+	AerospikeAuth      string `yaml:"AerospikeAuth" default:"false"`
+	TransGlobalTable   string `yaml:"TransGlobalTable" default:"dtm.trans_global"`
+	TransBranchOpTable string `yaml:"TransBranchOpTable" default:"dtm.trans_branch_op"`
 }
 
 // IsDB checks config driver is mysql or postgres

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	as "github.com/aerospike/aerospike-client-go/v5"
 	"strings"
 	sync "sync"
 	"time"
@@ -156,6 +157,29 @@ func MongoGet() *mongo.Client {
 	return mongoc
 }
 
+//SetAerospikeBothAccount 1
+func SetAerospikeBothAccount(amountA int, ammountB int) {
+	asc := AerospikeGet()
+	policy := asc.DefaultWritePolicy
+
+	outKey := GetAerospikeAccountKey(TransOutUID)
+	valueOut := float64(amountA)
+	binMapOut := as.BinMap{
+		"balance": valueOut,
+	}
+	err := asc.Put(policy, outKey, binMapOut)
+	dtmimp.E2P(err)
+
+	inKey := GetAerospikeAccountKey(TransInUID)
+	valueIn := float64(amountA)
+	binMapIn := as.BinMap{
+		"balance": valueIn,
+	}
+	err2 := asc.Put(policy, inKey, binMapIn)
+	dtmimp.E2P(err2)
+
+}
+
 // SetRedisBothAccount 1
 func SetRedisBothAccount(amountA int, ammountB int) {
 	rd := RedisGet()
@@ -195,4 +219,16 @@ func SetupMongoBarrierAndBusi() {
 	})
 	dtmimp.E2P(err)
 	SetMongoBothAccount(10000, 10000)
+}
+
+func AerospikeGet() *as.Client {
+
+	policy := as.NewClientPolicy()
+	policy.MinConnectionsPerNode = 50
+	policy.User = "admin"
+	policy.Password = "admin"
+	policy.Timeout = time.Duration(60 * time.Second)
+	client, err := as.NewClientWithPolicy(policy, "10.211.55.200", 3000)
+	dtmimp.E2P(err)
+	return client
 }

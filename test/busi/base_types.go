@@ -9,6 +9,7 @@ package busi
 import (
 	"context"
 	"fmt"
+	as "github.com/aerospike/aerospike-client-go/v5"
 
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
@@ -54,7 +55,21 @@ func GetBalanceByUID(uid int, store string) int {
 		err := account.FindOne(context.Background(), bson.D{{Key: "user_id", Value: uid}}).Decode(&result)
 		dtmimp.E2P(err)
 		return int(result["balance"].(float64))
+	} else if store == "aerospike" {
+		asc := AerospikeGet()
+
+		key, err := as.NewKey("test", "user_account", uid)
+		dtmimp.E2P(err)
+		bins := []string{"user_id", "balance"}
+		accountResult, err := asc.Get(nil, key, bins...)
+		dtmimp.E2P(err)
+
+		balanceValue := accountResult.Bins["balance"]
+
+		var balance float64 = balanceValue.(float64)
+		return int(balance)
 	}
+
 	ua := UserAccount{}
 	_ = dbGet().Must().Model(&ua).Where("user_id=?", uid).First(&ua)
 	return dtmimp.MustAtoi(ua.Balance[:len(ua.Balance)-3])
@@ -150,4 +165,11 @@ var MainSwitch mainSwitchType
 // GetRedisAccountKey return redis key for uid
 func GetRedisAccountKey(uid int) string {
 	return fmt.Sprintf("{a}-redis-account-key-%d", uid)
+}
+
+// GetRedisAccountKey return redis key for uid
+func GetAerospikeAccountKey(uid int) *as.Key {
+	key, err := as.NewKey("dtm_busi", "user_account", uid)
+	dtmimp.E2P(err)
+	return key
 }

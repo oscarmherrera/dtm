@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"github.com/dtm-labs/dtm/dtmsvr/storage/aerospikedb"
 	"time"
 
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -35,6 +36,12 @@ var storeFactorys = map[string]StorageFactory{
 	"redis": &SingletonFactory{
 		creatorFunction: func() storage.Store {
 			return &redis.Store{}
+		},
+	},
+	"aerospike": &SingletonFactory{
+		creatorFunction: func() storage.Store {
+			aerospikedb.InitializeAerospikeStore(conf.Store)
+			return &aerospikedb.Store{}
 		},
 	},
 	"mysql":    sqlFac,
