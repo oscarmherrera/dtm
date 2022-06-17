@@ -553,9 +553,9 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	expiredTime := time.Now().Add(expireIn)
-	expired := expiredTime.UnixNano()
-	logger.Debugf("LockOneGlobalTrans: where expired less then: %d, realtime (%s)", expired, expiredTime.String())
+	expiredTimeTime := time.Now().Add(expireIn)
+	expiredTime := expiredTimeTime.UnixNano()
+	logger.Debugf("LockOneGlobalTrans: where expired less then: %d, realtime (%s)", expiredTime, expiredTimeTime.String())
 	owner := shortuuid.New()
 
 	policy := as.NewQueryPolicy()
@@ -610,11 +610,11 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 		id := res.Record.Key
 		bins := res.Record.Bins
 		status := bins["status"].(string)
-		expireValue := convertASIntInterfaceToTime(bins["next_cron_time"])
+		nextCronTime := convertASIntInterfaceToTime(bins["next_cron_time"])
 
-		logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), expireValue.String())
+		logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), nextCronTime.String())
 
-		if (status == "prepared" || status == "aborting" || status == "submitted") && (expireValue.UnixNano() < expired) {
+		if (nextCronTime.UnixNano() < expiredTime) && (status == "prepared" || status == "aborting" || status == "submitted") {
 			if counter < 1 {
 				logger.Debugf("LockOneGlobalTrans: record found gid(%s) status (%s)", bins["gid"].(string), bins["status"].(string))
 				next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
@@ -649,35 +649,6 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 		}
 	}
 	return nil
-	//if counter == 0 {
-	//	// Didn't find anything so return nil
-	//	return nil
-	//}
-	//
-	//queryPolicy := as.NewQueryPolicy()
-	//equalOwner := as.ExpEq(as.ExpStringBin("owner"), as.ExpStringVal(owner))
-	//queryPolicy.FilterExpression = equalOwner
-	//queryPolicy.MaxRecords = 1
-	//
-	//statement = &as.Statement{
-	//	Namespace: SCHEMA,
-	//	SetName:   TransactionGlobal,
-	//	IndexName: "TXM_GID",
-	//	BinNames:  *bins,
-	//	Filter:    nil,
-	//	TaskId:    0,
-	//}
-	//
-	//rs2, err := client.Query(policy, statement)
-	//dtmimp.E2P(err)
-	//
-	//var resultTrans *storage.TransGlobalStore
-	//for res := range rs2.Results() {
-	//	resultTrans = convertAerospikeRecordToTransGlobalRecord(res.Record)
-	//	break
-	//}
-
-	//return resultTrans
 }
 
 // Todo review and optimize this code.
