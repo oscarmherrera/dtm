@@ -58,7 +58,7 @@ func GetBalanceByUID(uid int, store string) int {
 	} else if store == "aerospike" {
 		asc := AerospikeGet()
 
-		key, err := as.NewKey("test", "user_account", uid)
+		key, err := as.NewKey("dtm_busi", "user_account", uid)
 		dtmimp.E2P(err)
 		bins := []string{"user_id", "balance"}
 		accountResult, err := asc.Get(nil, key, bins...)
