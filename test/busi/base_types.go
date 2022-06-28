@@ -157,6 +157,7 @@ type mainSwitchType struct {
 	QueryPreparedResult   AutoEmptyString
 	NextResult            AutoEmptyString
 	JrpcResult            AutoEmptyString
+	FailureReason         AutoEmptyString
 }
 
 // MainSwitch controls busi success or fail
