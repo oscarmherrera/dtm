@@ -19,6 +19,9 @@ func PopulateDB(skipDrop bool, busiDriver string) {
 
 	switch busiDriver {
 	case "redis":
+		_, err := RedisGet().FlushAll(context.Background()).Result() // redis barrier need clear
+		dtmimp.E2P(err)
+
 		SetRedisBothAccount(10000, 10000)
 	case "mongo":
 		SetupMongoBarrierAndBusi()
@@ -32,7 +35,7 @@ func PopulateDB(skipDrop bool, busiDriver string) {
 		dtmutil.RunSQLScript(BusiConf, file, skipDrop)
 		file = fmt.Sprintf("%s/dtmsvr.storage.%s.sql", dtmutil.GetSQLDir(), BusiConf.Driver)
 		dtmutil.RunSQLScript(BusiConf, file, skipDrop)
-		_, err := RedisGet().FlushAll(context.Background()).Result() // redis barrier need clear
-		dtmimp.E2P(err)
+		//_, err := RedisGet().FlushAll(context.Background()).Result() // redis barrier need clear
+		//dtmimp.E2P(err)
 	}
 }

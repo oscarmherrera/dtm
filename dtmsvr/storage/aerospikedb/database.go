@@ -213,17 +213,24 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 	}
 
 	bins := as.BinMap{
-		"xid":            txid,
-		"gid":            global.Gid,
-		"status":         global.Status,
-		"trans_type":     global.TransType,
-		"create_time":    createTime,
-		"update_time":    updateTime,
-		"finish_time":    finishTime,
-		"rollback_time":  rollbackTime,
-		"next_cron_time": next_cron_time,
-		"st_nxt_ctime":   cdtStatusNextCronTime,
-		"branches":       *branches,
+		"xid":             txid,
+		"gid":             global.Gid,
+		"trans_type":      global.TransType,
+		"status":          global.Status,
+		"query_prepared":  global.QueryPrepared,
+		"protocol":        global.Protocol,
+		"create_time":     createTime,
+		"update_time":     updateTime,
+		"finish_time":     finishTime,
+		"rollback_time":   rollbackTime,
+		"options":         global.Options,
+		"custom_data":     global.CustomData,
+		"nxt_cron_intrvl": global.NextCronInterval,
+		"next_cron_time":  next_cron_time,
+		"ext_data":        global.ExtData,
+		"owner":           global.Owner,
+		"st_nxt_ctime":    cdtStatusNextCronTime,
+		"branches":        *branches,
 	}
 
 	policy := as.NewWritePolicy(0, 0)
@@ -620,17 +627,6 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 	owner := shortuuid.New()
 
 	policy := as.NewQueryPolicy()
-	//whereTime := as.ExpLess(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
-	//contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
-	//contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
-	//contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
-
-	//statusExp := as.ExpIntOr(contains1, contains2, contains3)
-
-	//expression := as.ExpAnd(whereTime, statusExp)
-
-	//policy.FilterExpression = whereTime
-
 	bins := getTransGlobalTableBins()
 	//policy.MaxRecords = int64(1)
 
@@ -673,7 +669,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 		status := bins["status"].(string)
 		nextCronTime := convertASIntInterfaceToTime(bins["next_cron_time"])
 
-		logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), nextCronTime.String())
+		//logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), nextCronTime.String())
 
 		if (nextCronTime.UnixNano() < expiredTime) && (status == "prepared" || status == "aborting" || status == "submitted") {
 			if counter < 1 {
@@ -688,9 +684,9 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 					logger.Errorf("LockOneGlobalTrans: error updating global transaction id %v, bins:%v", id, bins)
 					dtmimp.E2P(err)
 				}
-				logger.Debugf("LockOneGlobalTrans: locking a trans with gid %s and owner %s", bins["gid"].(string), owner)
+				logger.Debugf("LockOneGlobalTrans: locking a trans: %v", bins) // with gid %s and owner %s", bins["gid"].(string), owner")
 				// found the first one
-				// No go retrieve it and return using the key
+				// Now go retrieve it and return using the key
 
 				policy := &as.BasePolicy{}
 
@@ -700,6 +696,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 					logger.Errorf("LockOneGlobalTrans: retrieved found trans gid(%s)", res.Record.Bins["gid"].(string))
 					return nil
 				}
+				logger.Debugf("LockOneGlobalTrans: record: %v", record) // with gid %s and owner %s", bins["gid"].(string), owner")
 				resultTrans := convertAerospikeRecordToTransGlobalRecord(record)
 				counter++
 				return resultTrans

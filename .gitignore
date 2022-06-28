@@ -19,3 +19,5 @@ dtm.*
 cache
 
 /out/
+/test/test.test
+/test.test

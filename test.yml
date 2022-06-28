@@ -17,6 +17,17 @@
    AerospikeSeedSrv: '10.211.55.200:3000'
 
 # Store: # specify which engine to store trans status
+#   Driver: 'postgres'
+#   Host: 'localhost'
+#   User: 'postgres'
+#   Password: 'postgres'
+#   Port: 5432
+#   Db: dtm
+#   MaxOpenConns: 20
+#   MaxIdleConns: 10
+
+
+# Store: # specify which engine to store trans status
 #   Driver: 'mysql'
 #   Host: 'localhost'
 #   User: 'root'

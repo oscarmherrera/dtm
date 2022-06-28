@@ -104,7 +104,7 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 
 func (p *ASConnectionPool) Get() (interface{}, error) {
 	conn, err := p.connPool.Get()
-	logger.Debugf("connection get, pool depth:%d", p.PoolDepth())
+	//logger.Debugf("connection get, pool depth:%d", p.PoolDepth())
 	return conn, err
 }
 
@@ -114,7 +114,7 @@ func (p *ASConnectionPool) Put(c interface{}) {
 		logger.Errorf("connection pool put")
 		return
 	}
-	logger.Debugf("connection put, pool depth:%d", p.PoolDepth())
+	//logger.Debugf("connection put, pool depth:%d", p.PoolDepth())
 }
 
 func (p *ASConnectionPool) Release() {
