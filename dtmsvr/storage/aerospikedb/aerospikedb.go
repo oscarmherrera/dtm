@@ -156,7 +156,9 @@ func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []sto
 // ChangeGlobalStatus changes global trans status
 func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
 	logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
-	UpdateGlobalStatus(global, newStatus, updates, finished)
+	ChangeGlobalStatus(global, newStatus, updates, finished)
+	//UpdateGlobalStatus(global, newStatus, updates, finished)
+
 }
 
 // LockOneGlobalTrans finds GlobalTrans

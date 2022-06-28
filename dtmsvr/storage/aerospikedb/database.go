@@ -364,25 +364,85 @@ func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 	return transStore
 }
 
-func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error) {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
-	policy := &as.BasePolicy{}
-	logger.Debugf("UpdateGlobalStatus: gid being retrieved: %s trying to set status(%s)", global.Gid, newStatus)
+	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
+	statusExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal(status))
+	exp := as.ExpAnd(gidExp, statusExp)
+	logger.Debugf("getTransGlobalStoreWithStatus: where gid = (%s) and status = (%s)", gid, status)
 
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
-	dtmimp.E2P(err)
+	policy := as.NewQueryPolicy()
+	policy.FilterExpression = exp
 
 	bins := getTransGlobalTableBins()
-	record, err := client.Get(policy, key, *bins...)
+
+	statement := &as.Statement{
+		Namespace: SCHEMA,
+		SetName:   TransactionGlobal,
+		IndexName: "TXM_GID",
+		BinNames:  *bins,
+		Filter:    nil,
+		TaskId:    0,
+	}
+
+	rs, err := client.Query(policy, statement)
+
+	if err != nil {
+		logger.Errorf("getTransGlobalStoreWithStatus error: %s", err)
+		return nil, err
+	}
+	counter := int64(0)
+	var foundRecord *as.Record
+	for res := range rs.Results() {
+		if res.Err != nil {
+			logger.Errorf("getTransGlobalStoreWithStatus: %s", res.Err)
+			return nil, res.Err
+		}
+		bins := res.Record.Bins
+		logger.Debugf("getTransGlobalStoreWithStatus: gid (%s) status (%s)", bins["gid"].(string), bins["status"].(string))
+
+		if counter < 1 {
+			foundRecord = res.Record
+			counter++
+		} else {
+			counter++
+			logger.FatalfIf(counter > 1, "getTransGlobalStoreWithStatus more than 1 record found count is upto (%d)", counter)
+			break
+		}
+	}
+	return foundRecord, nil
+}
+
+func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	oldStatus := global.Status
+	//policy := &as.BasePolicy{}
+	logger.Debugf("ChangeGlobalStatus: gid being retrieved: %s trying to set status(%s) finished(%t)", global.Gid, newStatus, finished)
+
+	//key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
+	//dtmimp.E2P(err)
+
+	//bins := getTransGlobalTableBins()
+	//record, err := client.Get(policy, key, *bins...)
+	record, err := getTransGlobalStoreWithStatus(global.Gid, oldStatus)
 	dtmimp.E2P(err)
-	logger.Debugf("UpdateGlobalStatus: retrieve record gid: %s", record.Bins["gid"].(string))
+	currentStatus := record.Bins["status"]
+	if currentStatus == oldStatus {
+		logger.Debugf("ChangeGlobalStatus: found gid (%s) with old status(%s) and new status(%s)", global.Gid, global.Status, newStatus)
+		UpdateGlobalStatus(record, global, newStatus, updates, finished)
+	}
+}
+
+func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
 	resultRecordBins := record.Bins
 	resultRecordBins["status"] = newStatus
-	//if finished == true {
-	//	resultRecordBins["finish_time"] = time.Now().UnixNano()
-	//}
 
 	for _, v := range updates {
 		switch v {
@@ -417,7 +477,8 @@ func UpdateGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 		RespondPerEachOp:   false,
 		DurableDelete:      true,
 	}
-	err = client.Put(updatePolicy, record.Key, resultRecordBins)
+
+	err := client.Put(updatePolicy, record.Key, resultRecordBins)
 	dtmimp.E2P(err)
 }
 
