@@ -130,7 +130,7 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 	exist := CheckTransGlobalTableForGIDExists(global.Gid)
 	logger.Debugf("MaySaveNewTrans: checking if gid(%s) exists(%t)", global.Gid, exist)
 	if exist == true {
-		return errors.New("UNIQUE_CONFLICT")
+		return storage.ErrUniqueConflict
 	}
 
 	branchXIDList, err := newTransBranchOpSet(branches)
