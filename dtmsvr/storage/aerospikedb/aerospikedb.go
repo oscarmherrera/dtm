@@ -158,6 +158,7 @@ func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus s
 	logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
 	ChangeGlobalStatus(global, newStatus, updates, finished)
 	//UpdateGlobalStatus(global, newStatus, updates, finished)
+
 }
 
 // LockOneGlobalTrans finds GlobalTrans

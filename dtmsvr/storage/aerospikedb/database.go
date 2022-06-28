@@ -477,6 +477,7 @@ func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, new
 		RespondPerEachOp:   false,
 		DurableDelete:      true,
 	}
+
 	err := client.Put(updatePolicy, record.Key, resultRecordBins)
 	dtmimp.E2P(err)
 }
