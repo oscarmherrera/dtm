@@ -119,9 +119,16 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 }
 
 func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []string) (int, error) {
-	logger.Infof("Unimplemented, here is the data branches: %v with updates: %v", branches, updates)
-	dtmimp.E2P(errors.New("Unimplemented function UpdateBranches"))
-	return 0, nil // not implemented
+	logger.Debugf("UpdateBranches: data branches: %v with updates: %v", branches, updates)
+	updateCounter := 0
+	for _, branch := range branches {
+		err := updateBranchWithUpdateList(branch, updates)
+		if err != nil {
+			return 0, err
+		}
+		updateCounter++
+	}
+	return updateCounter, nil
 }
 
 // MaySaveNewTrans creates a new trans
@@ -156,7 +163,9 @@ func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []sto
 // ChangeGlobalStatus changes global trans status
 func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
 	logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
-	ChangeGlobalStatus(global, newStatus, updates, finished)
+	err := ChangeGlobalStatus(global, newStatus, updates, finished)
+	dtmimp.E2P(err)
+
 	//UpdateGlobalStatus(global, newStatus, updates, finished)
 
 }
