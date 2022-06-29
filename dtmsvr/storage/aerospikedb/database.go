@@ -448,10 +448,13 @@ func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error
 			break
 		}
 	}
+	if counter == 0 {
+		return nil, storage.ErrNotFound
+	}
 	return foundRecord, nil
 }
 
-func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) error {
 	client := aerospikeGet()
 	defer connectionPools.Put(client)
 
@@ -465,12 +468,17 @@ func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 	//bins := getTransGlobalTableBins()
 	//record, err := client.Get(policy, key, *bins...)
 	record, err := getTransGlobalStoreWithStatus(global.Gid, oldStatus)
-	dtmimp.E2P(err)
+	if err != nil {
+
+		return err
+	}
+
 	currentStatus := record.Bins["status"]
 	if currentStatus == oldStatus {
 		logger.Debugf("ChangeGlobalStatus: found gid (%s) with old status(%s) and new status(%s)", global.Gid, global.Status, newStatus)
 		UpdateGlobalStatus(record, global, newStatus, updates, finished)
 	}
+	return nil
 }
 
 func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
@@ -518,6 +526,7 @@ func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, new
 
 	err := client.Put(updatePolicy, record.Key, resultRecordBins)
 	dtmimp.E2P(err)
+	*global = *getTransGlobalStore(global.Gid)
 }
 
 func BuildTransGlobalScanList() (*as.Record, error) {
@@ -1348,6 +1357,121 @@ func updateBranch(gid string, branch storage.TransBranchStore) error {
 		}
 		counter++
 	}
+	logger.Debugf("updateBranch: updated %d records", counter)
+
+	return nil
+}
+
+// updateBranchWithUpdateList
+// Will update a branch with the information in the update list
+// the function will NOT create a new branch it is update only
+func updateBranchWithUpdateList(branch storage.TransBranchStore, updates []string) error {
+	logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) op (%s) status(%s)", branch.Gid, branch.BranchID, branch.Op, branch.Status)
+	client := aerospikeGet()
+	defer connectionPools.Put(client)
+
+	policy := as.NewQueryPolicy()
+	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(branch.Gid))
+	branchExp := as.ExpEq(as.ExpStringBin("branch_id"), as.ExpStringVal(branch.BranchID))
+	opExp := as.ExpEq(as.ExpStringBin("op"), as.ExpStringVal(branch.Op))
+	filterExp := as.ExpAnd(gidExp, branchExp, opExp)
+
+	policy.FilterExpression = filterExp
+
+	var bins = getBranchOpSetBins()
+	statement := &as.Statement{
+		Namespace: SCHEMA,
+		SetName:   TransactionBranchOp,
+		IndexName: "GID_BRANCH_UNIQ",
+		BinNames:  *bins,
+		Filter:    nil,
+		TaskId:    0,
+	}
+
+	rs, err := client.Query(policy, statement)
+	dtmimp.E2P(err)
+	counter := int(0)
+	for res := range rs.Results() {
+
+		if res.Err != nil {
+			// handle error here
+			logger.Errorf("unable to read record, %s", res.Err)
+			// if you want to exit, cancel the recordset to release the resources
+			err := rs.Close()
+			if err != nil {
+				continue
+			}
+		} else {
+			id := res.Record.Key
+			logger.Infof("retrieved key: %s", id)
+
+			bins := res.Record.Bins
+
+			gid_branch_uniq := map[string]interface{}{
+				"gid":       branch.Gid,
+				"branch_id": branch.BranchID,
+				"op":        branch.Op,
+			}
+
+			for updateCount, v := range updates {
+				switch v {
+				case "branch_id":
+					bins["branch_id"] = branch.BranchID
+				case "url":
+					bins["url"] = branch.URL
+				case "bin_data":
+					bins["bin_data"] = branch.BinData
+				case "op":
+					bins["op"] = branch.Op
+				case "status":
+					bins["status"] = branch.Status
+				case "finish_time":
+					bins["finish_time"] = int64(0)
+					if branch.FinishTime != nil {
+						bins["finish_time"] = branch.FinishTime.UnixNano()
+					}
+				case "create_time":
+					bins["create_time"] = int64(0)
+					if branch.CreateTime != nil {
+						bins["create_time"] = branch.CreateTime.UnixNano()
+					}
+				case "update_time":
+					bins["update_time"] = int64(0)
+					if branch.UpdateTime != nil {
+						bins["update_time"] = branch.UpdateTime.UnixNano()
+					}
+				default:
+					logger.Debugf("updateBranchWithUpdateList: unhandled field %s", v)
+					dtmimp.E2P(errors.New("updateBranchWithUpdateList: unhandled field for update"))
+				}
+				if updateCount == 1 {
+					bins["gid_branch_uniq"] = gid_branch_uniq
+				}
+			}
+
+			// Don't override the transaction ID
+			logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) status(%s)", branch.Gid, branch.BranchID, branch.Status)
+			updatePolicy := &as.WritePolicy{
+				BasePolicy: as.BasePolicy{
+					TotalTimeout: 200 * time.Millisecond,
+				},
+				RecordExistsAction: as.UPDATE_ONLY,
+				GenerationPolicy:   0,
+				CommitLevel:        0,
+				Generation:         0,
+				Expiration:         0,
+				RespondPerEachOp:   false,
+				DurableDelete:      true,
+			}
+			err = client.Put(updatePolicy, id, bins)
+			if err != nil {
+				logger.Errorf("updateBranch: %s", err)
+				return err
+			}
+			counter++
+		}
+	}
+
 	logger.Debugf("updateBranch: updated %d records", counter)
 
 	return nil
