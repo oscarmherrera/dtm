@@ -58,14 +58,14 @@ func (s *Store) Ping() error {
 func (s *Store) PopulateData(skipDrop bool) {
 
 	if !skipDrop {
-		DropTableTransGlobal()
-		DropTableTransBranchOp()
+		dropTableTransGlobal()
+		dropTableTransBranchOp()
 		//_, err := redisGet().FlushAll(ctx).Result()
 		//logger.Infof("call redis flushall. result: %v", err)
 		//dtmimp.PanicIf(err != nil, err)
 	}
-	CreateTransGlobalSet()
-	CreateTransBranchOpSet()
+	createTransGlobalSet()
+	createTransBranchOpSet()
 
 }
 
