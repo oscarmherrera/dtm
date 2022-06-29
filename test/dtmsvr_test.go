@@ -40,7 +40,7 @@ func getBranchesStatus(gid string) []string {
 }
 
 func TestUpdateBranchAsync(t *testing.T) {
-	if conf.Store.Driver != config.Mysql {
+	if conf.Store.Driver != config.Mysql && conf.Store.Driver != config.Aerospike {
 		return
 	}
 	conf.UpdateBranchSync = 0
