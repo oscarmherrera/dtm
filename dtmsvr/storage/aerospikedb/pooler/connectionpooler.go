@@ -14,11 +14,11 @@ import (
 
 //var authVars *utils.ASAuthentication
 
+var connectionPool *ASConnectionPool
+
 type ASConnectionPool struct {
 	connPool pool.Pool
 }
-
-//var roundRobinASServers utils.RoundRobin
 
 func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 	var auth bool = false
@@ -97,9 +97,13 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 	asConnPool := &ASConnectionPool{
 		connPool: p,
 	}
-
+	connectionPool = asConnPool
 	return asConnPool, nil
 
+}
+
+func GetConnectionPool() *ASConnectionPool {
+	return connectionPool
 }
 
 func (p *ASConnectionPool) Get() (interface{}, error) {

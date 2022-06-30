@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/aerospike/aerospike-client-go/v5"
 	"strings"
+	"time"
 
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
@@ -27,6 +29,9 @@ const Redis = "redis"
 
 // Mongo 1
 const Mongo = "mongo"
+
+// Aerospike 1
+const Aerospike = "aerospike"
 
 func handleGrpcBusiness(in *BusiReq, result1 string, result2 string, busi string) error {
 	res := dtmimp.OrString(result1, result2, dtmcli.ResultSuccess)
@@ -101,6 +106,43 @@ func SagaMongoAdjustBalance(ctx context.Context, mc *mongo.Client, uid int, amou
 		return err
 	}
 	balance := res["balance"].(float64)
+	if balance < 0 {
+		return fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
+	}
+	return nil
+}
+
+// SagaAerospikeAdjustBalance
+func SagaAerospikeAdjustBalance(client *aerospike.Client, uid int, amount int, result string) error {
+	if strings.Contains(result, dtmcli.ResultFailure) {
+		return dtmcli.ErrFailure
+	}
+
+	updatePolicy := &aerospike.WritePolicy{
+		BasePolicy: aerospike.BasePolicy{
+			TotalTimeout: 200 * time.Millisecond,
+		},
+		RecordExistsAction: aerospike.UPDATE_ONLY,
+		GenerationPolicy:   0,
+		CommitLevel:        0,
+		Generation:         0,
+		Expiration:         0,
+		RespondPerEachOp:   false,
+		DurableDelete:      true,
+	}
+
+	key, err := aerospike.NewKey("dtm_busi", "user_account", uid)
+	dtmimp.E2P(err)
+
+	amountBin := aerospike.NewBin("balance", float64(amount))
+
+	accountResult, err := client.Operate(updatePolicy, key, aerospike.AddOp(amountBin), aerospike.GetOp())
+	if err != nil {
+		return err
+	}
+	dtmimp.E2P(err)
+
+	balance := accountResult.Bins["balance"].(float64)
 	if balance < 0 {
 		return fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
 	}

@@ -60,12 +60,14 @@ func (s *Store) PopulateData(skipDrop bool) {
 	if !skipDrop {
 		dropTableTransGlobal()
 		dropTableTransBranchOp()
+		dropBarrierSet()
 		//_, err := redisGet().FlushAll(ctx).Result()
 		//logger.Infof("call redis flushall. result: %v", err)
 		//dtmimp.PanicIf(err != nil, err)
 	}
 	createTransGlobalSet()
 	createTransBranchOpSet()
+	createBarrierSet()
 
 }
 

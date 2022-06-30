@@ -17,7 +17,7 @@ const SCHEMA = "test"
 var TransactionManagerNamespace = "test"
 var TransactionGlobal = "trans_global"
 var TransactionBranchOp = "trans_branch_op"
-var BranchBarrier = "branch_barrier"
+var BranchBarrierTable = "branch_barrier"
 
 type TEXT string
 type BYTEA string

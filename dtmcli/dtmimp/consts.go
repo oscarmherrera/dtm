@@ -38,6 +38,9 @@ const (
 	DBTypePostgres = "postgres"
 	// DBTypeRedis const for driver redis
 	DBTypeRedis = "redis"
+	// DBTypeRedis const for driver aerospike
+	DBTypeAerospike = "aerospike"
+
 	// Jrpc const for json-rpc
 	Jrpc = "json-rpc"
 	// JrpcCodeFailure const for json-rpc failure

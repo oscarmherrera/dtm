@@ -37,8 +37,10 @@ func TestMain(m *testing.M) {
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
 	tenv := os.Getenv("TEST_STORE")
-
-	conf.Store.Driver = tenv
+	if conf.Store.Driver == "" {
+		// only do this if the test.yml is empty
+		conf.Store.Driver = tenv
+	}
 
 	conf.Store.Host = "localhost"
 	conf.Store.Db = ""
@@ -57,11 +59,18 @@ func TestMain(m *testing.M) {
 		conf.Store.MaxIdleConns = 20
 		conf.Store.AerospikeNamespace = "test"
 		conf.Store.AerospikeSeedSrv = "10.211.55.200:3000"
+
+		busi.BusiConf.Driver = config.Aerospike
+		busi.BusiConf.User = conf.Store.User
+		busi.BusiConf.Password = conf.Store.Password
+		busi.BusiConf.Port = conf.Store.Port
+		busi.BusiConf.Host = "10.211.55.200"
+
 	case "postgres":
-		conf.Store.Host = "10.0.0.101"
+		conf.Store.Host = "localhost"
 		conf.Store.Port = 5432
 		conf.Store.User = "postgres"
-		conf.Store.Password = "trust"
+		conf.Store.Password = "postgres"
 		conf.Store.Db = "dtm"
 
 	default:
@@ -69,7 +78,6 @@ func TestMain(m *testing.M) {
 		conf.Store.Password = ""
 		conf.Store.Port = 6379
 	}
-
 
 	registry.WaitStoreUp()
 	dtmsvr.PopulateDB(false)
@@ -80,7 +88,7 @@ func TestMain(m *testing.M) {
 	}
 	go dtmsvr.StartSvr()
 
-	busi.PopulateDB(false, tenv)
+	busi.PopulateDB(false, conf.Store.Driver)
 
 	_ = busi.Startup()
 	r := m.Run()
