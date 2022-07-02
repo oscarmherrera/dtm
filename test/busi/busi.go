@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/aerospike/aerospike-client-go/v5"
-	"strings"
-	"time"
-
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -16,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	"strings"
+	"time"
 )
 
 // TransOutUID 1
@@ -114,17 +113,19 @@ func SagaMongoAdjustBalance(ctx context.Context, mc *mongo.Client, uid int, amou
 
 // SagaAerospikeAdjustBalance
 func SagaAerospikeAdjustBalance(client *aerospike.Client, uid int, amount int, result string) error {
+	logger.Debugf("SagaAerospikeAdjustBalance: userId(%d) amount(%d)", uid, amount)
 	if strings.Contains(result, dtmcli.ResultFailure) {
+		logger.Debugf("SagaAerospikeAdjustBalance: %s", result)
 		return dtmcli.ErrFailure
 	}
 
 	updatePolicy := &aerospike.WritePolicy{
 		BasePolicy: aerospike.BasePolicy{
-			TotalTimeout: 200 * time.Millisecond,
+			TotalTimeout: 9000 * time.Millisecond,
 		},
 		RecordExistsAction: aerospike.UPDATE_ONLY,
 		GenerationPolicy:   0,
-		CommitLevel:        0,
+		CommitLevel:        aerospike.COMMIT_ALL,
 		Generation:         0,
 		Expiration:         0,
 		RespondPerEachOp:   false,
@@ -132,19 +133,24 @@ func SagaAerospikeAdjustBalance(client *aerospike.Client, uid int, amount int, r
 	}
 
 	key, err := aerospike.NewKey("dtm_busi", "user_account", uid)
-	dtmimp.E2P(err)
+	if err != nil {
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
+		return err
+	}
 
 	amountBin := aerospike.NewBin("balance", float64(amount))
 
 	accountResult, err := client.Operate(updatePolicy, key, aerospike.AddOp(amountBin), aerospike.GetOp())
 	if err != nil {
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
 		return err
 	}
-	dtmimp.E2P(err)
 
 	balance := accountResult.Bins["balance"].(float64)
 	if balance < 0 {
-		return fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
+		err := fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
+		return err
 	}
 	return nil
 }
