@@ -135,8 +135,8 @@ func BaseAddRoute(app *gin.Engine) {
 		return bb.MongoQueryPrepared(MongoGet())
 	}))
 	app.GET(BusiAPI+"/AerospikeQueryPrepared", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
-		client := AerospikeGet()
-		defer AerospikePut(client)
+		client := aerospikeGet()
+		defer aerospikePut(client)
 		logger.Debugf("%s AerospikeQueryPrepared", c.Query("gid"))
 		bb := MustBarrierFromGin(c)
 		return bb.AerospikeQueryPrepared(client)
