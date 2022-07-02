@@ -9,7 +9,6 @@ package busi
 import (
 	"context"
 	"database/sql"
-	"github.com/aerospike/aerospike-client-go/v5"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
 
 	"github.com/dtm-labs/dtm/dtmcli"
@@ -162,37 +161,44 @@ func init() {
 		//Aerospike
 		app.POST(BusiAPI+"/SagaAerospikeTransIn", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 			logger.Debugf(BusiAPI + "/SagaAerospikeTransIn")
-			client := AerospikeGet()
-			defer AerospikePut(client)
-			bb := MustBarrierFromGin(c)
-			return bb.AerospikeCall(client, func(asClient *aerospike.Client) error {
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
 				logger.Debugf(BusiAPI+"/SagaAerospikeTransIn: Calling bus function: amount(%d)", reqFrom(c).Amount)
 				return SagaAerospikeAdjustBalance(asClient, TransInUID, reqFrom(c).Amount, reqFrom(c).TransInResult)
 			})
 		}))
 		app.POST(BusiAPI+"/SagaAerospikeTransInCom", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 			logger.Debugf(BusiAPI + "/SagaAerospikeTransInCom")
-			client := AerospikeGet()
-			defer AerospikePut(client)
-			return MustBarrierFromGin(c).AerospikeCall(client, func(asClient *aerospike.Client) error {
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
 				logger.Debugf(BusiAPI+"/SagaAerospikeTransInCom: Calling bus function: amount(%d)", reqFrom(c).Amount)
 				return SagaAerospikeAdjustBalance(client, TransInUID, -reqFrom(c).Amount, "")
 			})
 		}))
 		app.POST(BusiAPI+"/SagaAerospikeTransOut", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 			logger.Debugf(BusiAPI + "/SagaAerospikeTransOut")
-			client := AerospikeGet()
-			defer AerospikePut(client)
-			return MustBarrierFromGin(c).AerospikeCall(client, func(asClient *aerospike.Client) error {
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
 				logger.Debugf(BusiAPI+"/SagaAerospikeTransOut: Calling bus function: amount(%d)", reqFrom(c).Amount)
 				return SagaAerospikeAdjustBalance(client, TransOutUID, -reqFrom(c).Amount, reqFrom(c).TransOutResult)
 			})
 		}))
 		app.POST(BusiAPI+"/SagaAerospikeTransOutCom", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 			logger.Debugf(BusiAPI + "/SagaAerospikeTransOutCom")
-			client := AerospikeGet()
-			defer AerospikePut(client)
-			return MustBarrierFromGin(c).AerospikeCall(client, func(asClient *aerospike.Client) error {
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
 				logger.Debugf(BusiAPI+"/SagaAerospikeTransOutCom: Calling bus function: amount(%d)", reqFrom(c).Amount)
 				return SagaAerospikeAdjustBalance(client, TransOutUID, reqFrom(c).Amount, "")
 			})

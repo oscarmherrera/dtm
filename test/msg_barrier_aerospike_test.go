@@ -2,8 +2,6 @@ package test
 
 import (
 	"errors"
-	"github.com/aerospike/aerospike-client-go/v5"
-	"github.com/dtm-labs/dtm/dtmsvr/storage/aerospikedb/pooler"
 	"testing"
 
 	"github.com/dtm-labs/dtm/dtmcli"
@@ -20,8 +18,10 @@ func TestMsgAerospikeDoSucceed(t *testing.T) {
 		Add(busi.Busi+"/SagaAerospikeTransIn", req)
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
-		defer pooler.GetConnectionPool().Put(client)
-		return bb.AerospikeCall(client, func(c *aerospike.Client) error {
+		defer busi.AerospikePut(client)
+		return bb.AerospikeCall(client, func() error {
+			c := busi.AerospikeGet()
+			defer busi.AerospikePut(c)
 			return busi.SagaAerospikeAdjustBalance(c, busi.TransOutUID, -30, "")
 		})
 	})
@@ -63,8 +63,10 @@ func TestMsgAerospikeDoBusiLater(t *testing.T) {
 
 	err = msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
-		defer pooler.GetConnectionPool().Put(client)
-		return bb.AerospikeCall(client, func(c *aerospike.Client) error {
+		defer busi.AerospikePut(client)
+		return bb.AerospikeCall(client, func() error {
+			c := busi.AerospikeGet()
+			defer busi.AerospikePut(c)
 			return busi.SagaAerospikeAdjustBalance(c, busi.TransOutUID, -30, "")
 		})
 	})
@@ -81,9 +83,11 @@ func TestMsgAerospikeDoCommitFailed(t *testing.T) {
 
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
-		defer pooler.GetConnectionPool().Put(client)
-		return bb.AerospikeCall(client, func(c *aerospike.Client) error {
-			err := busi.SagaAerospikeAdjustBalance(client, busi.TransOutUID, -30, "")
+		defer busi.AerospikePut(client)
+		return bb.AerospikeCall(client, func() error {
+			c := busi.AerospikeGet()
+			defer busi.AerospikePut(c)
+			err := busi.SagaAerospikeAdjustBalance(c, busi.TransOutUID, -30, "")
 			assert.Nil(t, err)
 			return errors.New("commit failed")
 		})
@@ -102,8 +106,10 @@ func TestMsgAerospikeDoCommitAfterFailed(t *testing.T) {
 		Add(busi.Busi+"/SagaAerospikeTransIn", req)
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
-		defer pooler.GetConnectionPool().Put(client)
-		err := bb.AerospikeCall(client, func(c *aerospike.Client) error {
+		defer busi.AerospikePut(client)
+		err := bb.AerospikeCall(client, func() error {
+			c := busi.AerospikeGet()
+			defer busi.AerospikePut(c)
 			return busi.SagaAerospikeAdjustBalance(c, busi.TransOutUID, -30, "")
 		})
 		assert.Nil(t, err)
