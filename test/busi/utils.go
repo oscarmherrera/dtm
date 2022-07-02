@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	as "github.com/aerospike/aerospike-client-go/v5"
-	"github.com/dtm-labs/dtm/dtmsvr/storage/aerospikedb/pooler"
 	"strings"
 	sync "sync"
 	"time"
@@ -160,7 +159,9 @@ func MongoGet() *mongo.Client {
 
 //SetAerospikeBothAccount 1
 func SetAerospikeBothAccount(amountA int, amountB int) {
-	asc := AerospikeGet()
+	asc := aerospikeGet()
+	defer aerospikePut(asc)
+
 	policy := asc.DefaultWritePolicy
 
 	outKey := GetAerospikeAccountKey(TransOutUID)
@@ -222,16 +223,23 @@ func SetupMongoBarrierAndBusi() {
 	SetMongoBothAccount(10000, 10000)
 }
 
-func AerospikePut(c *as.Client) {
-	pooler.GetConnectionPool().Put(c)
+func aerospikePut(c *as.Client) {
+	aerospikeClientPool.Put(c)
 }
 
-func AerospikeGet() *as.Client {
-	pooler.GetConnectionPool()
-	asConnIntf, err := pooler.GetConnectionPool().Get()
+func aerospikeGet() *as.Client {
+	asConnIntf, err := aerospikeClientPool.Get()
 	if err != nil {
 		logger.Errorf(err.Error())
 		return nil
 	}
 	return asConnIntf.(*as.Client)
+}
+
+func AerospikePut(c *as.Client) {
+	aerospikeClientPool.Put(c)
+}
+
+func AerospikeGet() *as.Client {
+	return aerospikeGet()
 }
