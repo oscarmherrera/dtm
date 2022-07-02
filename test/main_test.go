@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 
 	conf.Store.Host = "localhost"
 	conf.Store.Db = ""
-	switch tenv {
+	switch conf.Store.Driver {
 	case "boltdb":
 		conf.Store.Driver = "boltdb"
 	case "mysql":
@@ -88,7 +88,7 @@ func TestMain(m *testing.M) {
 	}
 	go dtmsvr.StartSvr()
 
-	busi.PopulateDB(false, conf.Store.Driver)
+	busi.PopulateDB(false, busi.BusiConf)
 
 	_ = busi.Startup()
 	r := m.Run()
