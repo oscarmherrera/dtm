@@ -23,7 +23,7 @@ func createBarrierSet() {
 	//CONSTRAINT uniq_barrier unique(gid, branch_id, op, barrier_id)
 	//);
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	var barrier dtmcli.BranchBarrier
 
@@ -85,7 +85,7 @@ func createBarrierSet() {
 func dropBarrierSet() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	writePolicy := &as.WritePolicy{
 		RecordExistsAction: as.REPLACE,

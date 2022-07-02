@@ -10,7 +10,7 @@ import (
 	"context"
 	"errors"
 	as "github.com/aerospike/aerospike-client-go/v5"
-	"github.com/dtm-labs/dtm/dtmsvr/storage/aerospikedb/pooler"
+	"github.com/dtm-labs/dtm/dtmutil/aerospike/pooler"
 	"time"
 
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
@@ -34,7 +34,17 @@ type Store struct {
 var connectionPools *pooler.ASConnectionPool
 
 func InitializeAerospikeStore(store config.Store) {
-	cp, err := pooler.InitializeConnectionPool(store)
+	asPoolConfig := &pooler.AerospikePoolConfig{
+		SeedServer:      store.AerospikeSeedSrv,
+		UseAuth:         false,
+		User:            store.User,
+		Password:        store.Password,
+		ConnMaxLifeTime: int(store.ConnMaxLifeTime),
+		MaxIdleConns:    int(store.MaxIdleConns),
+		MaxOpenConns:    int(store.MaxOpenConns),
+	}
+
+	cp, err := pooler.InitializeConnectionPool(asPoolConfig)
 	dtmimp.E2P(err)
 	logger.Infof("Connection Pool initialized with connection depth: %d", cp.PoolDepth())
 	connectionPools = cp
@@ -201,4 +211,8 @@ func aerospikeGet() *as.Client {
 		return nil
 	}
 	return asConnIntf.(*as.Client)
+}
+
+func aerospikePut(client *as.Client) {
+	connectionPools.Put(client)
 }

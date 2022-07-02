@@ -5,7 +5,6 @@ import (
 	as "github.com/aerospike/aerospike-client-go/v5"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
-	"github.com/dtm-labs/dtm/dtmsvr/config"
 	"github.com/silenceper/pool"
 	"strconv"
 	"strings"
@@ -20,15 +19,30 @@ type ASConnectionPool struct {
 	connPool pool.Pool
 }
 
-func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
-	var auth bool = false
-	if config.AerospikeAuth == "true" {
-		auth = true
+type AerospikePoolConfig struct {
+	SeedServer      string
+	UseAuth         bool
+	User            string
+	Password        string
+	ConnMaxLifeTime int
+	MaxIdleConns    int
+	MaxOpenConns    int
+	InitialCapacity int
+}
+
+func InitializeConnectionPool(config *AerospikePoolConfig) (*ASConnectionPool, error) {
+
+	var UseAerospikeAuth = config.UseAuth
+
+	if config.ConnMaxLifeTime == 0 {
+		config.ConnMaxLifeTime = 10 //seconds
 	}
 
-	var UseAerospikeAuth = auth
+	if config.InitialCapacity == 0 {
+		config.InitialCapacity = 20
+	}
 
-	seedServer := config.AerospikeSeedSrv
+	seedServer := config.SeedServer
 	var asServer []string
 	asServer = append(asServer, seedServer)
 
@@ -69,9 +83,10 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 			policy.User = config.User
 			policy.Password = config.Password
 			policy.Timeout = time.Duration(60 * time.Second)
+			logger.Debugf("connection factory: new connection with policy to server(%s) port(%d)", parts[0], port)
 			return as.NewClientWithPolicy(policy, parts[0], port)
 		}
-
+		//logger.Debugf("connection factory: new connection with default policy to server(%s) port(%d)", parts[0], port)
 		return as.NewClient(parts[0], port)
 	}
 
@@ -80,11 +95,11 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 		v.(*as.Client).Close()
 		return nil
 	}
-	timeout := int(config.ConnMaxLifeTime)
+	timeout := config.ConnMaxLifeTime
 	poolConfig := &pool.Config{
-		InitialCap:  20,
-		MaxIdle:     int(config.MaxIdleConns) + 10,
-		MaxCap:      int(config.MaxOpenConns) + 10,
+		InitialCap:  config.InitialCapacity,
+		MaxIdle:     config.MaxIdleConns + 5,
+		MaxCap:      config.MaxOpenConns + 5,
 		Factory:     factory,
 		Close:       closeConn,
 		IdleTimeout: time.Duration(time.Second * time.Duration(timeout)),
@@ -102,7 +117,7 @@ func InitializeConnectionPool(config config.Store) (*ASConnectionPool, error) {
 
 }
 
-func GetConnectionPool() *ASConnectionPool {
+func getConnectionPool() *ASConnectionPool {
 	return connectionPool
 }
 

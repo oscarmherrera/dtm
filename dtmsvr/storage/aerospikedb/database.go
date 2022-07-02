@@ -49,7 +49,7 @@ func getTransGlobalTableBins() *[]string {
 func dropTableTransGlobal() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	writePolicy := &as.WritePolicy{
 		RecordExistsAction: as.REPLACE,
@@ -77,7 +77,7 @@ func dropTableTransGlobal() {
 func dropTableTransBranchOp() {
 	//drop table IF EXISTS dtm.trans_global;
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	writePolicy := &as.WritePolicy{
 		RecordExistsAction: as.REPLACE,
@@ -121,7 +121,7 @@ func createTransGlobalSet() {
 	//CONSTRAINT gid UNIQUE (gid)
 	//);
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	var trans storage.TransGlobalStore
 
@@ -215,7 +215,7 @@ func createTransBranchOpSet() {
 	//);
 
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	var transBranch storage.TransBranchStore
 
@@ -277,7 +277,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 	logger.Debugf("NewTransGlobal: create time %s", global.CreateTime)
 
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	txid := xid.New()
 	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
@@ -353,7 +353,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 
 func CheckTransGlobalTableForGIDExists(gid string) bool {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 	logger.Debugf("CheckTransGlobalTableForGID: gid being retrieved: %s", gid)
@@ -375,7 +375,7 @@ func CheckTransGlobalTableForGIDExists(gid string) bool {
 
 func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 	if gid == "" {
@@ -402,7 +402,7 @@ func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 
 func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
 	statusExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal(status))
@@ -424,7 +424,7 @@ func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error
 	}
 
 	rs, err := client.Query(policy, statement)
-
+	defer closeResults(rs)
 	if err != nil {
 		logger.Errorf("getTransGlobalStoreWithStatus error: %s", err)
 		return nil, err
@@ -456,7 +456,7 @@ func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error
 
 func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) error {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	oldStatus := global.Status
 	//policy := &as.BasePolicy{}
@@ -483,7 +483,7 @@ func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, upda
 
 func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	resultRecordBins := record.Bins
 	resultRecordBins["status"] = newStatus
@@ -531,7 +531,7 @@ func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, new
 
 func BuildTransGlobalScanList() (*as.Record, error) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	var record *as.Record
 
@@ -582,7 +582,7 @@ func BuildTransGlobalScanList() (*as.Record, error) {
 // ScanTransGlobalTable
 func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobalStore, *string) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	record, err := BuildTransGlobalScanList()
 	dtmimp.E2P(err)
@@ -659,7 +659,7 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	expiredTimeTime := time.Now().Add(expireIn)
 	expiredTime := expiredTimeTime.UnixNano()
@@ -680,7 +680,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 	}
 
 	rs, err := client.Query(policy, statement)
-
+	defer closeResults(rs)
 	if err != nil {
 		logger.Errorf("LockOneGlobalTrans error: %s", err)
 		return nil
@@ -754,7 +754,7 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
 	logger.Debugf("ResetCronTimeGlobalTran: timeout %v limit(%d)", timeout, limit)
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewQueryPolicy()
 
@@ -763,13 +763,6 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 	logger.Debugf("ResetCronTimeGlobalTran: where expired greater then: %d, realtime (%s)", expired, expiredTime.String())
 
 	whereTime := as.ExpGreater(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
-	//contains1 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
-	//contains2 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
-	//contains3 := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
-	//
-	//statusExp := as.ExpIntOr(contains1, contains2, contains3)
-	//
-	//expression := as.ExpAnd(whereTime, statusExp)
 
 	policy.FilterExpression = whereTime
 	var bins = []string{"gid", "status", "next_cron_time"}
@@ -785,6 +778,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 	// Todo complain about MaxRecords being an approximation
 
 	rs, err := client.Query(policy, statement)
+	defer closeResults(rs)
 	if err != nil {
 		logger.Errorf("ResetCronTimeGlobalTran: query error: %s", err)
 		return 0, false, err
@@ -878,7 +872,7 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 
 func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval int64, nextCronTime *time.Time) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewQueryPolicy()
 
@@ -895,6 +889,7 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 	}
 
 	rs, err := client.Query(policy, statement)
+	defer closeResults(rs)
 	dtmimp.E2P(err)
 
 	updatePolicy := &as.WritePolicy{
@@ -930,7 +925,7 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 // @Description: get the branchs bin for a Global Transaction and returns a list of xids for branches
 func getTransGlobalBranches(gid string) *[]xid.ID {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 	if gid == "" {
@@ -969,7 +964,7 @@ func getTransGlobalBranches(gid string) *[]xid.ID {
 
 func updateTransGlobalBranchList(gid string, txid *xid.ID) error {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 	if gid == "" {
@@ -1054,7 +1049,7 @@ func getBranchOpSetBins() *[]string {
 
 func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewWritePolicy(0, 0)
 	policy.CommitLevel = as.COMMIT_ALL
@@ -1124,7 +1119,7 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 /// GetBranchs
 func GetBranchs(gid string) *[]storage.TransBranchStore {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 
@@ -1158,7 +1153,7 @@ func GetBranchs(gid string) *[]storage.TransBranchStore {
 func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.TransBranchStore) error {
 	logger.Debugf("UpdateBranchsWithGIDStatus: gid(%s) status (%s)", gid, status)
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewQueryPolicy()
 	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
@@ -1178,6 +1173,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 	}
 
 	rs, err := client.Query(policy, statement)
+	defer closeResults(rs)
 	dtmimp.E2P(err)
 
 	var globalGid string
@@ -1215,7 +1211,7 @@ func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.Tr
 // CreateBranch
 func createBranch(gid string, branch storage.TransBranchStore) (*xid.ID, error) {
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	txid := xid.New()
 	key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
@@ -1268,7 +1264,7 @@ func createBranch(gid string, branch storage.TransBranchStore) (*xid.ID, error) 
 func updateBranch(gid string, branch storage.TransBranchStore) error {
 	logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) op (%s) status(%s)", branch.Gid, branch.BranchID, branch.Op, branch.Status)
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewQueryPolicy()
 	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
@@ -1289,6 +1285,7 @@ func updateBranch(gid string, branch storage.TransBranchStore) error {
 	}
 
 	rs, err := client.Query(policy, statement)
+	defer closeResults(rs)
 	dtmimp.E2P(err)
 	counter := int(0)
 	for res := range rs.Results() {
@@ -1368,7 +1365,7 @@ func updateBranch(gid string, branch storage.TransBranchStore) error {
 func updateBranchWithUpdateList(branch storage.TransBranchStore, updates []string) error {
 	logger.Debugf("updateBranch: update branch gid(%s) branch_id (%s) op (%s) status(%s)", branch.Gid, branch.BranchID, branch.Op, branch.Status)
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	policy := as.NewQueryPolicy()
 	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(branch.Gid))
@@ -1389,6 +1386,7 @@ func updateBranchWithUpdateList(branch storage.TransBranchStore, updates []strin
 	}
 
 	rs, err := client.Query(policy, statement)
+	defer closeResults(rs)
 	dtmimp.E2P(err)
 	counter := int(0)
 	for res := range rs.Results() {
@@ -1475,4 +1473,13 @@ func updateBranchWithUpdateList(branch storage.TransBranchStore, updates []strin
 	logger.Debugf("updateBranch: updated %d records", counter)
 
 	return nil
+}
+
+func closeResults(rs *as.Recordset) {
+	if rs != nil {
+		err := rs.Close()
+		if err != nil {
+			logger.Errorf("error closing aerospike results, %s", err)
+		}
+	}
 }
