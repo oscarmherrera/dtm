@@ -10,33 +10,24 @@ import (
 	"time"
 )
 
-const SCHEMA = "test"
-
 var TransactionManagerNamespace = "test"
 var BranchBarrierTable = "branch_barrier"
 
 // AerospikeCall sub-trans barrier for aerospike. see http://dtm.pub/practice/barrier
 // experimental
-func (bb *BranchBarrier) AerospikeCall(c *aerospike.Client, busiCall func(c *aerospike.Client) error) (rerr error) {
+//func (bb *BranchBarrier) AerospikeCall(c *aerospike.Client, busiCall func(c *aerospike.Client) error) (rerr error) {
+func (bb *BranchBarrier) AerospikeCall(c *aerospike.Client, busiCall func() error) (rerr error) {
 	bid := bb.newBarrierID()
-	return func(client *aerospike.Client) (rerr error) {
-		//rerr = sc.StartTransaction()
-		//if rerr != nil {
-		//	return nil
-		//}
-		//defer dtmimp.DeferDo(&rerr, func() error {
-		//	return sc.CommitTransaction(sc)
-		//}, func() error {
-		//	return sc.AbortTransaction(sc)
-		//})
+	return func() (rerr error) {
+
 		originOp := map[string]string{
 			dtmimp.OpCancel:     dtmimp.OpTry,
 			dtmimp.OpCompensate: dtmimp.OpAction,
 		}[bb.Op]
 
-		originAffected, oerr := aerospikeInsertBarrier(client, bb.TransType, bb.Gid, bb.BranchID, originOp, bid, bb.Op)
-		currentAffected, rerr := aerospikeInsertBarrier(client, bb.TransType, bb.Gid, bb.BranchID, bb.Op, bid, bb.Op)
-		logger.Debugf("originAffected: %d currentAffected: %d", originAffected, currentAffected)
+		originAffected, oerr := aerospikeInsertBarrier(c, bb.TransType, bb.Gid, bb.BranchID, originOp, bid, bb.Op)
+		currentAffected, rerr := aerospikeInsertBarrier(c, bb.TransType, bb.Gid, bb.BranchID, bb.Op, bid, bb.Op)
+		logger.Debugf("AerospikeCall: originAffected: %d currentAffected: %d", originAffected, currentAffected)
 
 		if rerr == nil && bb.Op == dtmimp.MsgDoOp && currentAffected == 0 { // for msg's DoAndSubmit, repeated insert should be rejected.
 			return ErrDuplicated
@@ -50,10 +41,10 @@ func (bb *BranchBarrier) AerospikeCall(c *aerospike.Client, busiCall func(c *aer
 			return
 		}
 		if rerr == nil {
-			rerr = busiCall(client)
+			rerr = busiCall()
 		}
 		return
-	}(c)
+	}()
 }
 
 // AerospikeQueryPrepared query prepared for Aerospike
@@ -116,6 +107,7 @@ func aerospikeInsertBarrier(c *aerospike.Client, transType string, gid string, b
 			if err != nil {
 				return 0, err
 			}
+			logger.Debugf("aerospikeInsertBarrier: created record %v", bins)
 			return 1, err
 		}
 	}
@@ -124,8 +116,10 @@ func aerospikeInsertBarrier(c *aerospike.Client, transType string, gid string, b
 }
 
 func aerospikeGetBarrier(client *aerospike.Client, gid string, branch_id string, op string, barrier_id string) (*aerospike.Record, error) {
-
+	logger.Debugf("aerospikeGetBarrier: getting barrier gid(%s), branch_id(%s), op(%s), barrier_id (%s)", gid, branch_id, op, barrier_id)
 	policy := aerospike.NewQueryPolicy()
+	policy.TotalTimeout = 300 * time.Millisecond
+
 	gidExp := aerospike.ExpEq(aerospike.ExpStringBin("gid"), aerospike.ExpStringVal(gid))
 	branchExp := aerospike.ExpEq(aerospike.ExpStringBin("branch_id"), aerospike.ExpStringVal(branch_id))
 	opExp := aerospike.ExpEq(aerospike.ExpStringBin("op"), aerospike.ExpStringVal(op))
@@ -143,17 +137,26 @@ func aerospikeGetBarrier(client *aerospike.Client, gid string, branch_id string,
 		Filter:    nil,
 		TaskId:    0,
 	}
-
+	logger.Debugf("aerospikeGetBarrier: executing query")
 	rs, err := client.Query(policy, statement)
-	dtmimp.E2P(err)
+	defer closeResults(rs)
+	if err != nil {
+		logger.Errorf("aerospikeGetBarrier: query error, %s", err.Error())
+		return nil, err
+	}
 
+	logger.Debugf("aerospikeGetBarrier: retrieving records")
 	counter := int64(0)
 	var foundRecord *aerospike.Record
+	logger.Debugf("aerospikeGetBarrier: results (%v) isActive(%t) taskId(%d) ", rs.Results(), rs.IsActive(), rs.TaskId())
+
 	for rec := range rs.Results() {
+		logger.Debugf("aerospikeGetBarrier: record, %v", rec)
 		if rec.Err != nil {
 			logger.Errorf("aerospikeGetBarrier: %s", err)
 			return nil, errors.New("NOT_FOUND")
 		}
+		logger.Debugf("aerospikeGetBarrier: record retrieve, %v", rec.Record.Bins)
 		resultBins := rec.Record.Bins
 		requestedGid := resultBins["gid"].(string)
 		txid := resultBins["txid"].([]byte)
@@ -163,9 +166,10 @@ func aerospikeGetBarrier(client *aerospike.Client, gid string, branch_id string,
 		break
 	}
 	if counter == 0 {
+		logger.Debugf("aerospikeGetBarrier: no records found")
 		return nil, errors.New("NOT_FOUND")
 	}
-
+	logger.Debugf("aerospikeGetBarrier: found record, %v", foundRecord.Bins)
 	return foundRecord, nil
 }
 
@@ -198,4 +202,13 @@ func getBarrierBins() *[]string {
 		"uniq_barrier",
 	}
 	return &binList
+}
+
+func closeResults(rs *aerospike.Recordset) {
+	if rs != nil {
+		err := rs.Close()
+		if err != nil {
+			logger.Errorf("error closing aerospike results, %s", err)
+		}
+	}
 }
