@@ -87,8 +87,8 @@ func (t *ReqHTTP) String() string {
 	return fmt.Sprintf("amount: %d transIn: %s transOut: %s", t.Amount, t.TransInResult, t.TransOutResult)
 }
 
-// GenTransReq 1
-func GenTransReq(amount int, outFailed bool, inFailed bool) *ReqHTTP {
+// GenReqHTTP 1
+func GenReqHTTP(amount int, outFailed bool, inFailed bool) *ReqHTTP {
 	return &ReqHTTP{
 		Amount:         amount,
 		TransOutResult: dtmimp.If(outFailed, dtmcli.ResultFailure, "").(string),
@@ -96,8 +96,8 @@ func GenTransReq(amount int, outFailed bool, inFailed bool) *ReqHTTP {
 	}
 }
 
-// GenBusiReq 1
-func GenBusiReq(amount int, outFailed bool, inFailed bool) *BusiReq {
+// GenReqGrpc 1
+func GenReqGrpc(amount int, outFailed bool, inFailed bool) *ReqGrpc {
 	return &BusiReq{
 		Amount:         int64(amount),
 		TransOutResult: dtmimp.If(outFailed, dtmcli.ResultFailure, "").(string),
