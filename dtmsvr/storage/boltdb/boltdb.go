@@ -393,34 +393,30 @@ func (s *Store) TouchCronTime(global *storage.TransGlobalStore, nextCronInterval
 
 // LockOneGlobalTrans finds GlobalTrans
 func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalStore {
-	var transo *storage.TransGlobalStore
+	var trans *storage.TransGlobalStore
 	min := fmt.Sprintf("%d", time.Now().Add(expireIn).Unix())
 	err := s.boltDb.Update(func(t *bolt.Tx) error {
 		cursor := t.Bucket(bucketIndex).Cursor()
 		toDelete := [][]byte{}
-		for k, v := cursor.First(); k != nil && string(k) <= min; k, v = cursor.Next() {
+		for k, v := cursor.First(); k != nil && string(k) <= min && (trans == nil || trans.IsFinished()); k, v = cursor.Next() {
+			trans = tGetGlobal(t, string(v))
 			toDelete = append(toDelete, k)
-			trans := tGetGlobal(t, string(v))
-			if trans != nil && !trans.IsFinished() {
-				transo = trans
-				break
-			}
 		}
 		for _, k := range toDelete {
 			err := t.Bucket(bucketIndex).Delete(k)
 			dtmimp.E2P(err)
 		}
-		if transo != nil {
+		if trans != nil && !trans.IsFinished() {
 			next := time.Now().Add(time.Duration(s.retryInterval) * time.Second)
-			transo.NextCronTime = &next
-			tPutGlobal(t, transo)
-			tPutIndex(t, next.Unix(), transo.Gid)
-
+			trans.NextCronTime = &next
+			tPutGlobal(t, trans)
+			// this put should be after delete, because the data may be the same
+			tPutIndex(t, next.Unix(), trans.Gid)
 		}
 		return nil
 	})
 	dtmimp.E2P(err)
-	return transo
+	return trans
 }
 
 // ResetCronTime reset nextCronTime
