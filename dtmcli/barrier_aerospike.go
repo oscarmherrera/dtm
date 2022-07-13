@@ -60,7 +60,11 @@ func (bb *BranchBarrier) AerospikeQueryPrepared(c *aerospike.Client) error {
 		}
 
 	}
-	reason := result.Bins["reason"].(string)
+
+	var reason string
+	if err == nil {
+		reason, _ = result.Bins["reason"].(string)
+	}
 
 	if err == nil && reason == dtmimp.OpRollback {
 		return ErrFailure
@@ -117,60 +121,31 @@ func aerospikeInsertBarrier(c *aerospike.Client, transType string, gid string, b
 
 func aerospikeGetBarrier(client *aerospike.Client, gid string, branch_id string, op string, barrier_id string) (*aerospike.Record, error) {
 	logger.Debugf("aerospikeGetBarrier: getting barrier gid(%s), branch_id(%s), op(%s), barrier_id (%s)", gid, branch_id, op, barrier_id)
-	policy := aerospike.NewQueryPolicy()
-	policy.TotalTimeout = 300 * time.Millisecond
+	policy := &aerospike.BasePolicy{}
 
-	gidExp := aerospike.ExpEq(aerospike.ExpStringBin("gid"), aerospike.ExpStringVal(gid))
-	branchExp := aerospike.ExpEq(aerospike.ExpStringBin("branch_id"), aerospike.ExpStringVal(branch_id))
-	opExp := aerospike.ExpEq(aerospike.ExpStringBin("op"), aerospike.ExpStringVal(op))
-	barrierExp := aerospike.ExpEq(aerospike.ExpStringBin("barrier_id"), aerospike.ExpStringVal(barrier_id))
-	filterExp := aerospike.ExpAnd(gidExp, branchExp, opExp, barrierExp)
+	keyString := fmt.Sprintf("%s:%s:%s:%s", gid, branch_id, op, barrier_id)
+	key, err := aerospike.NewKey(TransactionManagerNamespace, BranchBarrierTable, keyString)
 
-	policy.FilterExpression = filterExp
-
-	var bins = getBarrierBins()
-	statement := &aerospike.Statement{
-		Namespace: TransactionManagerNamespace,
-		SetName:   BranchBarrierTable,
-		IndexName: "UNIQ_BARRIER",
-		BinNames:  *bins,
-		Filter:    nil,
-		TaskId:    0,
-	}
-	logger.Debugf("aerospikeGetBarrier: executing query")
-	rs, err := client.Query(policy, statement)
-	defer closeResults(rs)
 	if err != nil {
-		logger.Errorf("aerospikeGetBarrier: query error, %s", err.Error())
+		logger.Errorf("CheckTransGlobalTableForGIDExists: %s", err)
 		return nil, err
 	}
 
-	logger.Debugf("aerospikeGetBarrier: retrieving records")
-	counter := int64(0)
-	var foundRecord *aerospike.Record
-	logger.Debugf("aerospikeGetBarrier: results (%v) isActive(%t) taskId(%d) ", rs.Results(), rs.IsActive(), rs.TaskId())
-
-	for rec := range rs.Results() {
-		logger.Debugf("aerospikeGetBarrier: record, %v", rec)
-		if rec.Err != nil {
-			logger.Errorf("aerospikeGetBarrier: %s", err)
+	var bins = getBarrierBins()
+	//binString := strings.Join(*bins, ",")
+	record, err := client.Get(policy, key, *bins...)
+	if err != nil {
+		logger.Errorf("aerospikeGetBarrier: get error, %s", err.Error())
+		if err.Matches(aerospike.ErrKeyNotFound.ResultCode) == true {
 			return nil, errors.New("NOT_FOUND")
 		}
-		logger.Debugf("aerospikeGetBarrier: record retrieve, %v", rec.Record.Bins)
-		resultBins := rec.Record.Bins
-		requestedGid := resultBins["gid"].(string)
-		txid := resultBins["txid"].([]byte)
-		logger.Debugf("aerospikeGetBarrier: retrieved gid(%s) xid(%v)", requestedGid, txid)
-		foundRecord = rec.Record
-		counter++
-		break
+
+		return nil, err
 	}
-	if counter == 0 {
-		logger.Debugf("aerospikeGetBarrier: no records found")
-		return nil, errors.New("NOT_FOUND")
-	}
-	logger.Debugf("aerospikeGetBarrier: found record, %v", foundRecord.Bins)
-	return foundRecord, nil
+	logger.Debugf("aerospikeGetBarrier: found record, %v", record.Bins)
+
+	return record, nil
+
 }
 
 func convertAerospikeRecordToBarrier(asRecord *aerospike.Record) *BranchBarrier {
@@ -202,13 +177,4 @@ func getBarrierBins() *[]string {
 		"uniq_barrier",
 	}
 	return &binList
-}
-
-func closeResults(rs *aerospike.Recordset) {
-	if rs != nil {
-		err := rs.Close()
-		if err != nil {
-			logger.Errorf("error closing aerospike results, %s", err)
-		}
-	}
 }
