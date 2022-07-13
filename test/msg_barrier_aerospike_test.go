@@ -12,7 +12,8 @@ import (
 func TestMsgAerospikeDoSucceed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqHTTP(30, false, false)
+	//req := busi.GenTransReq(30, false, false)
 	msg := dtmcli.NewMsg(DtmServer, gid).
 		Add(busi.Busi+"/SagaAerospikeTransIn", req)
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
@@ -34,7 +35,8 @@ func TestMsgAerospikeDoSucceed(t *testing.T) {
 func TestMsgAerospikeDoBusiFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqHTTP(30, false, false)
+	//req := busi.GenTransReq(30, false, false)
 	msg := dtmcli.NewMsg(DtmServer, gid).Add(busi.Busi+"/SagaAerospikeTransIn", req)
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
 		return errors.New("an error")
@@ -46,7 +48,8 @@ func TestMsgAerospikeDoBusiFailed(t *testing.T) {
 func TestMsgAerospikeDoBusiLater(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqHTTP(30, false, false)
+	//req := busi.GenTransReq(30, false, false)
 	_, err := dtmcli.GetRestyClient().R().
 		SetQueryParams(map[string]string{
 			"trans_type": "msg",
@@ -77,7 +80,8 @@ func TestMsgAerospikeDoBusiLater(t *testing.T) {
 func TestMsgAerospikeDoCommitFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqHTTP(30, false, false)
+	//req := busi.GenTransReq(30, false, false)
 	msg := dtmcli.NewMsg(DtmServer, gid).
 		Add(busi.Busi+"/SagaAerospikeTransIn", req)
 	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
@@ -91,7 +95,8 @@ func TestMsgAerospikeDoCommitFailed(t *testing.T) {
 func TestMsgAerospikeDoCommitAfterFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqHTTP(30, false, false)
+	//req := busi.GenTransReq(30, false, false)
 	msg := dtmcli.NewMsg(DtmServer, gid).
 		Add(busi.Busi+"/SagaAerospikeTransIn", req)
 
