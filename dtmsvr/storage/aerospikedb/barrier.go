@@ -28,7 +28,7 @@ func createBarrierSet() {
 	var barrier dtmcli.BranchBarrier
 
 	txid := xid.New()
-	key, err := as.NewKey(SCHEMA, BranchBarrierTable, txid.Bytes())
+	key, err := as.NewKey(TransactionManagerNamespace, BranchBarrierTable, txid.Bytes())
 	dtmimp.E2P(err)
 
 	uniq_barrier := map[string]interface{}{
