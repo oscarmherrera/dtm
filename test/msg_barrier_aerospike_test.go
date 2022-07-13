@@ -112,13 +112,6 @@ func TestMsgAerospikeDoCommitAfterFailed(t *testing.T) {
 		})
 	})
 
-	//err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
-	//	c := busi.AerospikeGet()
-	//	defer busi.AerospikePut(c)
-	//	err := busi.SagaAerospikeAdjustBalance(c, busi.TransOutUID, -30, "")
-	//	dtmimp.E2P(err)
-	//	return errors.New("an error")
-	//})
 	assert.Error(t, err)
 	waitTransProcessed(gid)
 	assertNotSameBalance(t, before, "aerospike")
