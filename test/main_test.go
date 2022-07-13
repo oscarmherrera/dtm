@@ -7,11 +7,14 @@ package test
 
 import (
 	"github.com/dtm-labs/dtm/dtmcli"
+	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
 	"github.com/dtm-labs/dtm/dtmgrpc"
+	"github.com/dtm-labs/dtm/dtmgrpc/workflow"
 	"github.com/dtm-labs/dtm/dtmsvr"
 	"github.com/dtm-labs/dtm/dtmsvr/config"
 	"github.com/dtm-labs/dtm/dtmsvr/storage/registry"
+	"github.com/dtm-labs/dtm/dtmutil"
 	"github.com/dtm-labs/dtm/test/busi"
 	"github.com/go-resty/resty/v2"
 	"os"
@@ -19,11 +22,6 @@ import (
 	"time"
 )
 
-func exitIf(code int) {
-	if code != 0 {
-		os.Exit(code)
-	}
-}
 func TestMain(m *testing.M) {
 	config.MustLoadConfig("../test.yml")
 	//logger.InitLog("info")
@@ -37,7 +35,8 @@ func TestMain(m *testing.M) {
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
 	tenv := os.Getenv("TEST_STORE")
-
+	// tenv := dtmimp.OrString(os.Getenv("TEST_STORE"), config.Redis)
+	// conf.Store.Host = "localhost"
 	conf.Store.Driver = tenv
 
 	conf.Store.Host = "localhost"
@@ -80,11 +79,17 @@ func TestMain(m *testing.M) {
 	}
 	go dtmsvr.StartSvr()
 
-	busi.PopulateDB(false, tenv)
-
-	_ = busi.Startup()
+	busi.PopulateDB(false)
+	hsvr, gsvr := busi.Startup()
+	// WorkflowStarup 1
+	workflow.InitHTTP(dtmutil.DefaultHTTPServer, Busi+"/workflow/resume")
+	workflow.InitGrpc(dtmutil.DefaultGrpcServer, busi.BusiGrpc, gsvr)
+	go busi.RunGrpc(gsvr)
+	go busi.RunHTTP(hsvr)
 	r := m.Run()
-	exitIf(r)
+	if r != 0 {
+		os.Exit(r)
+	}
 	close(dtmsvr.TransProcessedTestChan)
 	gid, more := <-dtmsvr.TransProcessedTestChan
 	logger.FatalfIf(more, "extra gid: %s in test chan", gid)

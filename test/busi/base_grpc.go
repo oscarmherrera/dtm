@@ -21,6 +21,7 @@ import (
 
 	"github.com/dtm-labs/dtm/dtmgrpc/dtmgimp"
 	"github.com/dtm-labs/dtm/dtmgrpc/dtmgpb"
+	"github.com/dtm-labs/dtm/dtmgrpc/workflow"
 	grpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -32,22 +33,32 @@ var BusiGrpc = fmt.Sprintf("localhost:%d", BusiGrpcPort)
 // DtmClient grpc client for dtm
 var DtmClient dtmgpb.DtmClient
 
+// BusiCli grpc client for busi
+var BusiCli BusiClient
+
 // GrpcStartup for grpc
-func GrpcStartup() {
+func GrpcStartup() *grpc.Server {
 	conn, err := grpc.Dial(dtmutil.DefaultGrpcServer, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithUnaryInterceptor(dtmgimp.GrpcClientLog))
 	logger.FatalIfError(err)
 	DtmClient = dtmgpb.NewDtmClient(conn)
 	logger.Debugf("dtm client inited")
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", BusiGrpcPort))
+	conn1, err := grpc.Dial(BusiGrpc, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithUnaryInterceptor(workflow.Interceptor))
 	logger.FatalIfError(err)
+	BusiCli = NewBusiClient(conn1)
+
 	s := grpc.NewServer(grpc.UnaryInterceptor(dtmgimp.GrpcServerLog))
 	RegisterBusiServer(s, &busiServer{})
-	go func() {
-		logger.Debugf("busi grpc listening at %v", lis.Addr())
-		err := s.Serve(lis)
-		logger.FatalIfError(err)
-	}()
+	return s
+}
+
+// RunGrpc start to serve grpc
+func RunGrpc(server *grpc.Server) {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", BusiGrpcPort))
+	logger.FatalIfError(err)
+	logger.Debugf("busi grpc listening at %v", lis.Addr())
+	err = server.Serve(lis)
+	logger.FatalIfError(err)
 }
 
 // busiServer is used to implement busi.BusiServer.
@@ -55,58 +66,58 @@ type busiServer struct {
 	UnimplementedBusiServer
 }
 
-func (s *busiServer) QueryPrepared(ctx context.Context, in *BusiReq) (*BusiReply, error) {
+func (s *busiServer) QueryPrepared(ctx context.Context, in *ReqGrpc) (*BusiReply, error) {
 	res := MainSwitch.QueryPreparedResult.Fetch()
 	err := dtmcli.String2DtmError(res)
 
 	return &BusiReply{Message: "a sample data"}, dtmgrpc.DtmError2GrpcError(err)
 }
 
-func (s *busiServer) TransIn(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransIn(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransInResult.Fetch(), in.TransInResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOut(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOut(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransOutResult.Fetch(), in.TransOutResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransInRevert(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransInRevert(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransInRevertResult.Fetch(), "", dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOutRevert(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutRevert(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransOutRevertResult.Fetch(), "", dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransInConfirm(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransInConfirm(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransInConfirmResult.Fetch(), "", dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOutConfirm(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutConfirm(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransOutConfirmResult.Fetch(), "", dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransInTcc(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransInTcc(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransInResult.Fetch(), in.TransInResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOutTcc(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutTcc(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransOutResult.Fetch(), in.TransOutResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransInXa(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransInXa(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, dtmgrpc.XaLocalTransaction(ctx, BusiConf, func(db *sql.DB, xa *dtmgrpc.XaGrpc) error {
 		return sagaGrpcAdjustBalance(db, TransInUID, in.Amount, in.TransInResult)
 	})
 }
 
-func (s *busiServer) TransOutXa(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutXa(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, dtmgrpc.XaLocalTransaction(ctx, BusiConf, func(db *sql.DB, xa *dtmgrpc.XaGrpc) error {
 		return sagaGrpcAdjustBalance(db, TransOutUID, in.Amount, in.TransOutResult)
 	})
 }
 
-func (s *busiServer) TransInTccNested(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransInTccNested(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	tcc, err := dtmgrpc.TccFromGrpc(ctx)
 	logger.FatalIfError(err)
 	r := &emptypb.Empty{}
@@ -115,7 +126,7 @@ func (s *busiServer) TransInTccNested(ctx context.Context, in *BusiReq) (*emptyp
 	return r, handleGrpcBusiness(in, MainSwitch.TransInResult.Fetch(), in.TransInResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOutHeaderYes(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutHeaderYes(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	meta := dtmgimp.GetMetaFromContext(ctx, "test_header")
 	if meta == "" {
 		return &emptypb.Empty{}, errors.New("no header found in HeaderYes")
@@ -123,7 +134,7 @@ func (s *busiServer) TransOutHeaderYes(ctx context.Context, in *BusiReq) (*empty
 	return &emptypb.Empty{}, handleGrpcBusiness(in, MainSwitch.TransOutResult.Fetch(), in.TransOutResult, dtmimp.GetFuncName())
 }
 
-func (s *busiServer) TransOutHeaderNo(ctx context.Context, in *BusiReq) (*emptypb.Empty, error) {
+func (s *busiServer) TransOutHeaderNo(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
 	meta := dtmgimp.GetMetaFromContext(ctx, "test_header")
 	if meta != "" {
 		return &emptypb.Empty{}, errors.New("header found in HeaderNo")
