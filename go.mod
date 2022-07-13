@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	bou.ke/monkey v1.0.2
-	github.com/aerospike/aerospike-client-go/v5 v5.8.0
+	github.com/aerospike/aerospike-client-go/v5 v5.9.0
 	github.com/dtm-labs/dtmdriver v0.0.3
 	github.com/dtm-labs/dtmdriver-gozero v0.0.5
 	github.com/dtm-labs/dtmdriver-http v1.2.2
