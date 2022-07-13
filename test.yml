@@ -26,6 +26,12 @@
 #   MaxOpenConns: 20
 #   MaxIdleConns: 10
 
+# Store: # specify which engine to store trans status
+#   Driver: 'redis'
+#   Host: 'localhost'
+#   User: ''
+#   Password: ''
+#   Port: 6379
 
 # Store: # specify which engine to store trans status
 #   Driver: 'mysql'
