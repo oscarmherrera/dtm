@@ -22,23 +22,11 @@ func ConvertIPStringToIpPort(ipStrs *[]string) ([]Node, error) {
 	var nodes []Node
 
 	for _, ipString := range *ipStrs {
-		var node Node
-
-		ipInfo := strings.Split(ipString, ":")
-		ipAddr := net.ParseIP(ipInfo[0])
-		node.IP = ipAddr
-		if len(ipInfo) == 1 {
-			//We are going to use the default port
-			node.Port = 3000
-		} else {
-			port, err := strconv.Atoi(ipInfo[1])
-			if err != nil {
-				logger.Errorf("error invalid ip address port format: %v", err)
-				continue
-			}
-			node.Port = port
+		node, err := convertStringToIPNode(ipString)
+		if err != nil {
+			logger.Errorf("error: %s %s", ipString, err)
 		}
-		nodes = append(nodes, node)
+		nodes = append(nodes, *node)
 
 	}
 	if len(nodes) == 0 {
@@ -46,4 +34,22 @@ func ConvertIPStringToIpPort(ipStrs *[]string) ([]Node, error) {
 	}
 
 	return nodes, nil
+}
+
+func convertStringToIPNode(ipString string) (*Node, error) {
+	var node Node
+	ipInfo := strings.Split(ipString, ":")
+	ipAddr := net.ParseIP(ipInfo[0])
+	node.IP = ipAddr
+	if len(ipInfo) == 1 {
+		//We are going to use the default port
+		node.Port = 3000
+	} else {
+		port, err := strconv.Atoi(ipInfo[1])
+		if err != nil {
+			return nil, fmt.Errorf("error invalid ip address port format: %v", err)
+		}
+		node.Port = port
+	}
+	return &node, nil
 }
