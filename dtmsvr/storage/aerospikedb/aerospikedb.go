@@ -84,13 +84,14 @@ func (s *Store) PopulateData(skipDrop bool) {
 // FindTransGlobalStore finds GlobalTrans data by gid
 func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 	logger.Debugf("calling FindTransGlobalStore: %s", gid)
-
-	result := getTransGlobalStore(gid)
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	result := getTransGlobalStore(client, gid)
 	if result == nil {
 		return nil
 	}
-
-	return result
+	transStore := convertAerospikeRecordToTransGlobalRecord(result)
+	return transStore
 }
 
 // ScanTransGlobalStores lists GlobalTrans data
@@ -116,8 +117,9 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 
 	branches := []storage.TransBranchStore{}
 
-	results := GetBranchs(gid)
-	if results == nil {
+	results, err := GetBranchs(gid)
+	if err != nil {
+		logger.Debugf("FindBranches: no branches found, %s", err.Error())
 		return branches
 	}
 
@@ -148,19 +150,22 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 	logger.Debugf("MaySaveNewTrans: request new trans gloval gid(%s) with %d branches", global.Gid, len(branches))
 	exist := CheckTransGlobalTableForGIDExists(global.Gid)
 	logger.Debugf("MaySaveNewTrans: checking if gid(%s) exists(%t)", global.Gid, exist)
-	if exist == true {
+	// If it does exists that is what we are looking for.
+	if exist == false {
+		branchXIDList, err := newTransBranchOpSet(branches)
+		if err != nil {
+			return err
+		}
+
+		logger.Debugf("MaySaveNewTrans: create and retrieved %d branches", len(*branchXIDList))
+		err = NewTransGlobal(global, branchXIDList)
+		if err != nil {
+			return err
+		}
+
+	} else {
+		logger.Errorf("MaySaveNewTrans: %s", storage.ErrUniqueConflict)
 		return storage.ErrUniqueConflict
-	}
-
-	branchXIDList, err := newTransBranchOpSet(branches)
-	if err != nil {
-		return err
-	}
-
-	logger.Debugf("MaySaveNewTrans: create and retrieved %d branches", len(*branchXIDList))
-	err = NewTransGlobal(global, branchXIDList)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -174,11 +179,14 @@ func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []sto
 
 // ChangeGlobalStatus changes global trans status
 func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
-	logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
-	err := ChangeGlobalStatus(global, newStatus, updates, finished)
-	dtmimp.E2P(err)
-
-	//UpdateGlobalStatus(global, newStatus, updates, finished)
+	if global != nil {
+		logger.Debugf("ChangeGlobalStatus: trans to change, %v", *global)
+		err := ChangeGlobalStatus(global, newStatus, updates, finished)
+		if err != nil {
+			logger.Errorf("ChangeGlobalStatus: %s", err.Error())
+			dtmimp.E2P(err)
+		}
+	}
 
 }
 
@@ -195,7 +203,9 @@ func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalS
 // ResetCronTime rest nextCronTime
 // Prevent multiple backoff from causing NextCronTime to be too long
 func (s *Store) ResetCronTime(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
-	return ResetCronTimeGlobalTran(timeout, limit)
+
+	sc, b, err := ResetCronTimeGlobalTran(timeout, limit)
+	return sc, b, err
 }
 
 // TouchCronTime updates cronTime
