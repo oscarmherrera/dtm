@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	dtmcli.GetRestyClient().OnBeforeRequest(busi.SetHTTPHeaderForHeadersYes)
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
-	tenv := dtmimp.OrString(os.Getenv("TEST_STORE"), config.Redis)
+	tenv := dtmimp.OrString(os.Getenv("TEST_STORE"), config.Aerospike)
 	conf.Store.Host = "localhost"
 	conf.Store.Driver = tenv
 	if tenv == "boltdb" {
@@ -78,7 +78,7 @@ func TestMain(m *testing.M) {
 	}
 	go dtmsvr.StartSvr()
 
-	busi.PopulateDB(false)
+	busi.PopulateDB(false, &busi.BusiConf)
 	hsvr, gsvr := busi.Startup()
 	// WorkflowStarup 1
 	workflow.InitHTTP(dtmutil.DefaultHTTPServer, Busi+"/workflow/resume")

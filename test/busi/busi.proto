@@ -43,8 +43,14 @@ service Busi {
   rpc TransInRevertRedis(ReqGrpc) returns (google.protobuf.Empty) {}
   rpc TransOutRevertRedis(ReqGrpc) returns (google.protobuf.Empty) {}
 
+  rpc TransInAerospike(ReqGrpc) returns (google.protobuf.Empty) {}
+  rpc TransOutAerospike(ReqGrpc) returns (google.protobuf.Empty) {}
+  rpc TransInRevertAerospike(ReqGrpc) returns (google.protobuf.Empty) {}
+  rpc TransOutRevertAerospike(ReqGrpc) returns (google.protobuf.Empty) {}
+
   rpc QueryPrepared(ReqGrpc) returns (BusiReply) {}
   rpc QueryPreparedB(ReqGrpc) returns (google.protobuf.Empty) {}
   rpc QueryPreparedRedis(ReqGrpc) returns (google.protobuf.Empty) {}
+  rpc QueryPreparedAerospike(ReqGrpc) returns (google.protobuf.Empty) {}
 }
 

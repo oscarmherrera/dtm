@@ -48,6 +48,11 @@ type BusiClient interface {
 	QueryPrepared(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*BusiReply, error)
 	QueryPreparedB(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	QueryPreparedRedis(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	QueryPreparedAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	TransInAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	TransOutAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	TransInRevertAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	TransOutRevertAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type busiClient struct {
@@ -283,6 +288,51 @@ func (c *busiClient) QueryPreparedRedis(ctx context.Context, in *ReqGrpc, opts .
 	return out, nil
 }
 
+func (c *busiClient) QueryPreparedAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/busi.Busi/QueryPreparedAerospike", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *busiClient) TransInAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/busi.Busi/TransInAerospike", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *busiClient) TransOutAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/busi.Busi/TransOutAerospike", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *busiClient) TransInRevertAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/busi.Busi/TransInRevertAerospike", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *busiClient) TransOutRevertAerospike(ctx context.Context, in *ReqGrpc, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, "/busi.Busi/TransOutRevertAerospike", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BusiServer is the server API for Busi service.
 // All implementations must embed UnimplementedBusiServer
 // for forward compatibility
@@ -312,6 +362,11 @@ type BusiServer interface {
 	QueryPrepared(context.Context, *ReqGrpc) (*BusiReply, error)
 	QueryPreparedB(context.Context, *ReqGrpc) (*emptypb.Empty, error)
 	QueryPreparedRedis(context.Context, *ReqGrpc) (*emptypb.Empty, error)
+	QueryPreparedAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error)
+	TransInAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error)
+	TransOutAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error)
+	TransInRevertAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error)
+	TransOutRevertAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error)
 	mustEmbedUnimplementedBusiServer()
 }
 
@@ -394,6 +449,24 @@ func (UnimplementedBusiServer) QueryPreparedB(context.Context, *ReqGrpc) (*empty
 func (UnimplementedBusiServer) QueryPreparedRedis(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryPreparedRedis not implemented")
 }
+
+//--- Aerospike
+func (UnimplementedBusiServer) QueryPreparedAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryPreparedAerospike not implemented")
+}
+func (UnimplementedBusiServer) TransInAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TransInAerospike not implemented")
+}
+func (UnimplementedBusiServer) TransOutAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TransOutAerospike not implemented")
+}
+func (UnimplementedBusiServer) TransInRevertAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TransInRevertAerospike not implemented")
+}
+func (UnimplementedBusiServer) TransOutRevertAerospike(context.Context, *ReqGrpc) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TransOutRevertAerospike not implemented")
+}
+
 func (UnimplementedBusiServer) mustEmbedUnimplementedBusiServer() {}
 
 // UnsafeBusiServer may be embedded to opt out of forward compatibility for this service.
@@ -857,6 +930,96 @@ func _Busi_QueryPreparedRedis_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Busi_QueryPreparedAerospike_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReqGrpc)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BusiServer).QueryPreparedAerospike(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/busi.Busi/QueryPreparedAerospike",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BusiServer).QueryPreparedAerospike(ctx, req.(*ReqGrpc))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Busi_TransInAerospike_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReqGrpc)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BusiServer).TransInAerospike(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/busi.Busi/TransInAerospike",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BusiServer).TransInAerospike(ctx, req.(*ReqGrpc))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Busi_TransOutAerospike_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReqGrpc)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BusiServer).TransOutAerospike(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/busi.Busi/TransOutAerospike",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BusiServer).TransOutAerospike(ctx, req.(*ReqGrpc))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Busi_TransInRevertAerospike_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReqGrpc)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BusiServer).TransInRevertAerospike(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/busi.Busi/TransInRevertAerospike",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BusiServer).TransInRevertAerospike(ctx, req.(*ReqGrpc))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Busi_TransOutRevertAerospike_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReqGrpc)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BusiServer).TransOutRevertAerospike(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/busi.Busi/TransOutRevertAerospike",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BusiServer).TransOutRevertAerospike(ctx, req.(*ReqGrpc))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Busi_ServiceDesc is the grpc.ServiceDesc for Busi service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -963,6 +1126,26 @@ var Busi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryPreparedRedis",
 			Handler:    _Busi_QueryPreparedRedis_Handler,
+		},
+		{
+			MethodName: "QueryPreparedAerospike",
+			Handler:    _Busi_QueryPreparedAerospike_Handler,
+		},
+		{
+			MethodName: "TransInAerospike",
+			Handler:    _Busi_TransInAerospike_Handler,
+		},
+		{
+			MethodName: "TransOutAerospike",
+			Handler:    _Busi_TransOutAerospike_Handler,
+		},
+		{
+			MethodName: "TransInRevertAerospike",
+			Handler:    _Busi_TransInRevertAerospike_Handler,
+		},
+		{
+			MethodName: "TransOutRevertAerospike",
+			Handler:    _Busi_TransOutRevertAerospike_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

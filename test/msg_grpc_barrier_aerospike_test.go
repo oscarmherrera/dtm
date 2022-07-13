@@ -4,19 +4,19 @@ import (
 	"errors"
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
+	"github.com/dtm-labs/dtm/dtmgrpc"
 	"github.com/dtm-labs/dtm/test/busi"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-func TestMsgAerospikeDoSucceed(t *testing.T) {
+func TestMsgGrpcAerospikeDoSucceed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenReqHTTP(30, false, false)
-	//req := busi.GenTransReq(30, false, false)
-	msg := dtmcli.NewMsg(DtmServer, gid).
-		Add(busi.Busi+"/SagaAerospikeTransIn", req)
-	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
+	req := busi.GenReqGrpc(30, false, false)
+	msg := dtmgrpc.NewMsgGrpc(DtmGrpcServer, gid).
+		Add(busi.BusiGrpc+"/busi.Busi/TransInAerospike", req)
+	err := msg.DoAndSubmit(busi.BusiGrpc+"/busi.Busi/QueryPreparedAerospike", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
 		defer busi.AerospikePut(client)
 		return bb.AerospikeCall(client, func() error {
@@ -32,24 +32,23 @@ func TestMsgAerospikeDoSucceed(t *testing.T) {
 	assertNotSameBalance(t, before, "aerospike")
 }
 
-func TestMsgAerospikeDoBusiFailed(t *testing.T) {
+func TestMsgGrpcAerospikeDoBusiFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenReqHTTP(30, false, false)
-	//req := busi.GenTransReq(30, false, false)
-	msg := dtmcli.NewMsg(DtmServer, gid).Add(busi.Busi+"/SagaAerospikeTransIn", req)
-	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
+	req := busi.GenReqGrpc(30, false, false)
+	msg := dtmgrpc.NewMsgGrpc(DtmGrpcServer, gid).
+		Add(busi.BusiGrpc+"/busi.Busi/TransInAerospike", req)
+	err := msg.DoAndSubmit(busi.BusiGrpc+"/busi.Busi/QueryPreparedAerospike", func(bb *dtmcli.BranchBarrier) error {
 		return errors.New("an error")
 	})
 	assert.Error(t, err)
 	assertSameBalance(t, before, "aerospike")
 }
 
-func TestMsgAerospikeDoBusiLater(t *testing.T) {
+func TestMsgGrpcAerospikeDoBusiLater(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenReqHTTP(30, false, false)
-	//req := busi.GenTransReq(30, false, false)
+	req := busi.GenReqGrpc(30, false, false)
 	_, err := dtmcli.GetRestyClient().R().
 		SetQueryParams(map[string]string{
 			"trans_type": "msg",
@@ -60,10 +59,10 @@ func TestMsgAerospikeDoBusiLater(t *testing.T) {
 		}).
 		SetBody(req).Get(Busi + "/AerospikeQueryPrepared")
 	assert.Nil(t, err)
-	msg := dtmcli.NewMsg(DtmServer, gid).
-		Add(busi.Busi+"/SagaAerospikeTransIn", req)
+	msg := dtmgrpc.NewMsgGrpc(DtmGrpcServer, gid).
+		Add(busi.BusiGrpc+"/busi.Busi/TransInAerospike", req)
 
-	err = msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
+	err = msg.DoAndSubmit(busi.BusiGrpc+"/busi.Busi/QueryPreparedAerospike", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
 		defer busi.AerospikePut(client)
 		return bb.AerospikeCall(client, func() error {
@@ -77,14 +76,13 @@ func TestMsgAerospikeDoBusiLater(t *testing.T) {
 	assertSameBalance(t, before, "aerospike")
 }
 
-func TestMsgAerospikeDoCommitFailed(t *testing.T) {
+func TestMsgGrpcAerospikeDoCommitFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenReqHTTP(30, false, false)
-	//req := busi.GenTransReq(30, false, false)
-	msg := dtmcli.NewMsg(DtmServer, gid).
-		Add(busi.Busi+"/SagaAerospikeTransIn", req)
-	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
+	req := busi.GenReqGrpc(30, false, false)
+	msg := dtmgrpc.NewMsgGrpc(DtmGrpcServer, gid).
+		Add(busi.BusiGrpc+"/busi.Busi/TransInAerospike", req)
+	err := msg.DoAndSubmit(busi.BusiGrpc+"/busi.Busi/QueryPreparedAerospike", func(bb *dtmcli.BranchBarrier) error {
 		return errors.New("after commit error")
 	})
 	assert.Error(t, err)
@@ -92,15 +90,14 @@ func TestMsgAerospikeDoCommitFailed(t *testing.T) {
 
 }
 
-func TestMsgAerospikeDoCommitAfterFailed(t *testing.T) {
+func TestMsgGrpcAerospikeDoCommitAfterFailed(t *testing.T) {
 	before := getBeforeBalances("aerospike")
 	gid := dtmimp.GetFuncName()
-	req := busi.GenReqHTTP(30, false, false)
-	//req := busi.GenTransReq(30, false, false)
-	msg := dtmcli.NewMsg(DtmServer, gid).
-		Add(busi.Busi+"/SagaAerospikeTransIn", req)
+	req := busi.GenReqGrpc(30, false, false)
+	msg := dtmgrpc.NewMsgGrpc(DtmGrpcServer, gid).
+		Add(busi.BusiGrpc+"/busi.Busi/TransInAerospike", req)
 
-	err := msg.DoAndSubmit(Busi+"/AerospikeQueryPrepared", func(bb *dtmcli.BranchBarrier) error {
+	err := msg.DoAndSubmit(busi.BusiGrpc+"/busi.Busi/QueryPreparedAerospike", func(bb *dtmcli.BranchBarrier) error {
 		client := busi.AerospikeGet()
 		defer busi.AerospikePut(client)
 		return bb.AerospikeCall(client, func() error {
