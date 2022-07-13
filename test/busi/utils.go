@@ -224,20 +224,27 @@ func SetupMongoBarrierAndBusi() {
 }
 
 func aerospikePut(c *as.Client) {
-	aerospikeClientPool.Put(c)
+	//aerospikeClientPool.Put(c)
+	c.Close()
+
 }
 
 func aerospikeGet() *as.Client {
-	asConnIntf, err := aerospikeClientPool.Get()
-	if err != nil {
-		logger.Errorf(err.Error())
-		return nil
-	}
-	return asConnIntf.(*as.Client)
+
+	seedserver := "10.211.55.200"
+
+	policy := as.NewClientPolicy()
+	policy.MinConnectionsPerNode = 5
+	policy.Timeout = time.Duration(5 * time.Minute)
+
+	client, err := as.NewClientWithPolicy(policy, seedserver, 3000)
+	dtmimp.E2P(err)
+	//asClient = client
+	return client
 }
 
 func AerospikePut(c *as.Client) {
-	aerospikeClientPool.Put(c)
+	aerospikePut(c)
 }
 
 func AerospikeGet() *as.Client {
