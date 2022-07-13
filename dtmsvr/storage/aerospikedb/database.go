@@ -280,7 +280,7 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 	defer aerospikePut(client)
 
 	txid := xid.New()
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
+	key, err := as.NewKey(TransactionManagerNamespace, TransactionGlobal, global.Gid)
 	dtmimp.E2P(err)
 
 	next_cron_time := global.NextCronTime.UnixNano()
@@ -352,14 +352,18 @@ func NewTransGlobal(global *storage.TransGlobalStore, branches *[]xid.ID) error 
 }
 
 func CheckTransGlobalTableForGIDExists(gid string) bool {
-	client := aerospikeGet()
-	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 	logger.Debugf("CheckTransGlobalTableForGID: gid being retrieved: %s", gid)
 
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
-	dtmimp.E2P(err)
+	key, err := as.NewKey(TransactionManagerNamespace, TransactionGlobal, gid)
+	if err != nil {
+		logger.Errorf("CheckTransGlobalTableForGIDExists: %s", err)
+		return false
+	}
+
+	client := aerospikeGet()
+	defer aerospikePut(client)
 
 	record, err := client.GetHeader(policy, key)
 	if err != nil {
@@ -373,10 +377,7 @@ func CheckTransGlobalTableForGIDExists(gid string) bool {
 	return true
 }
 
-func getTransGlobalStore(gid string) *storage.TransGlobalStore {
-	client := aerospikeGet()
-	defer aerospikePut(client)
-
+func getTransGlobalStore(client *as.Client, gid string) *as.Record {
 	policy := &as.BasePolicy{}
 	if gid == "" {
 		logger.Infof("GetTransGlobal: gid is empty")
@@ -395,95 +396,55 @@ func getTransGlobalStore(gid string) *storage.TransGlobalStore {
 
 	logger.Debugf("GetTransGlobal: retrieve record gid: %s", record.Bins["gid"])
 	logger.Debugf("GetTransGlobal: retrieve record bins: %v", record.Bins)
-	transStore := convertAerospikeRecordToTransGlobalRecord(record)
+	//transStore := convertAerospikeRecordToTransGlobalRecord(record)
 
-	return transStore
+	return record
 }
 
-func getTransGlobalStoreWithStatus(gid string, status string) (*as.Record, error) {
-	client := aerospikeGet()
-	defer aerospikePut(client)
-
-	gidExp := as.ExpEq(as.ExpStringBin("gid"), as.ExpStringVal(gid))
-	statusExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal(status))
-	exp := as.ExpAnd(gidExp, statusExp)
-	logger.Debugf("getTransGlobalStoreWithStatus: where gid = (%s) and status = (%s)", gid, status)
-
-	policy := as.NewQueryPolicy()
-	policy.FilterExpression = exp
-
-	bins := getTransGlobalTableBins()
-
-	statement := &as.Statement{
-		Namespace: SCHEMA,
-		SetName:   TransactionGlobal,
-		IndexName: "TXM_GID",
-		BinNames:  *bins,
-		Filter:    nil,
-		TaskId:    0,
+func getTransGlobalStoreAsTransGlobal(client *as.Client, gid string) *storage.TransGlobalStore {
+	record := getTransGlobalStore(client, gid)
+	if record != nil {
+		return convertAerospikeRecordToTransGlobalRecord(record)
 	}
+	return nil
+}
 
-	rs, err := client.Query(policy, statement)
-	defer closeResults(rs)
-	if err != nil {
-		logger.Errorf("getTransGlobalStoreWithStatus error: %s", err)
-		return nil, err
-	}
-	counter := int64(0)
-	var foundRecord *as.Record
-	for res := range rs.Results() {
-		if res.Err != nil {
-			logger.Errorf("getTransGlobalStoreWithStatus: %s", res.Err)
-			return nil, res.Err
-		}
-		bins := res.Record.Bins
-		logger.Debugf("getTransGlobalStoreWithStatus: gid (%s) status (%s)", bins["gid"].(string), bins["status"].(string))
+func getTransGlobalStoreWithStatus(client *as.Client, gid string, status string) (*as.Record, error) {
+	logger.Debugf("getTransGlobalStoreWithStatus")
 
-		if counter < 1 {
-			foundRecord = res.Record
-			counter++
-		} else {
-			counter++
-			logger.FatalfIf(counter > 1, "getTransGlobalStoreWithStatus more than 1 record found count is upto (%d)", counter)
-			break
-		}
-	}
-	if counter == 0 {
+	foundRecord := getTransGlobalStore(client, gid)
+	if foundRecord == nil {
 		return nil, storage.ErrNotFound
 	}
-	return foundRecord, nil
+	recordStatus := foundRecord.Bins["status"].(string)
+	if recordStatus == status {
+		return foundRecord, nil
+	}
+	return nil, storage.ErrNotFound
 }
 
 func ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) error {
-	client := aerospikeGet()
-	defer aerospikePut(client)
 
 	oldStatus := global.Status
-	//policy := &as.BasePolicy{}
 	logger.Debugf("ChangeGlobalStatus: gid being retrieved: %s trying to set status(%s) finished(%t)", global.Gid, newStatus, finished)
 
-	//key, err := as.NewKey(SCHEMA, TransactionGlobal, global.Gid)
-	//dtmimp.E2P(err)
-
-	//bins := getTransGlobalTableBins()
-	//record, err := client.Get(policy, key, *bins...)
-	record, err := getTransGlobalStoreWithStatus(global.Gid, oldStatus)
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	logger.Debugf("ChangeGlobalStatus: got client")
+	record, err := getTransGlobalStoreWithStatus(client, global.Gid, oldStatus)
 	if err != nil {
-
 		return err
 	}
 
 	currentStatus := record.Bins["status"]
 	if currentStatus == oldStatus {
 		logger.Debugf("ChangeGlobalStatus: found gid (%s) with old status(%s) and new status(%s)", global.Gid, global.Status, newStatus)
-		UpdateGlobalStatus(record, global, newStatus, updates, finished)
+		updateGlobalStatus(client, record, global, newStatus, updates, finished)
 	}
 	return nil
 }
 
-func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
-	client := aerospikeGet()
-	defer aerospikePut(client)
+func updateGlobalStatus(client *as.Client, record *as.Record, global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
 
 	resultRecordBins := record.Bins
 	resultRecordBins["status"] = newStatus
@@ -526,7 +487,7 @@ func UpdateGlobalStatus(record *as.Record, global *storage.TransGlobalStore, new
 
 	err := client.Put(updatePolicy, record.Key, resultRecordBins)
 	dtmimp.E2P(err)
-	*global = *getTransGlobalStore(global.Gid)
+	*global = *getTransGlobalStoreAsTransGlobal(client, global.Gid)
 }
 
 func BuildTransGlobalScanList() (*as.Record, error) {
@@ -602,7 +563,7 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 			txid := itemList[0]
 			gid := itemList[1]
 			logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
-			tran := getTransGlobalStore(gid.(string))
+			tran := getTransGlobalStoreAsTransGlobal(client, gid.(string))
 			resultList = append(resultList, *tran)
 			index++
 		}
@@ -632,7 +593,7 @@ func ScanTransGlobalTable(position *string, limit int64) (*[]storage.TransGlobal
 					txid := itemList[0]
 					gid := itemList[1]
 					logger.Debugf("ScanTransGlobalTable: xid(%v) and gid(%s)", txid, gid)
-					tran := getTransGlobalStore(gid.(string))
+					tran := getTransGlobalStoreAsTransGlobal(client, gid.(string))
 					resultList = append(resultList, *tran)
 					counter++
 					if counter < limit {
@@ -667,11 +628,21 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 	owner := shortuuid.New()
 
 	policy := as.NewQueryPolicy()
+	nextCronTimeExp := as.ExpLess(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expiredTime))
+	statusPrepareExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
+	statusAbortingExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
+	statusSubmittedExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
+
+	statusOr := as.ExpOr(statusPrepareExp, statusAbortingExp, statusSubmittedExp)
+	where := as.ExpAnd(nextCronTimeExp, statusOr)
+
+	policy.FilterExpression = where
+
 	bins := getTransGlobalTableBins()
 	//policy.MaxRecords = int64(1)
 
 	statement := &as.Statement{
-		Namespace: SCHEMA,
+		Namespace: TransactionManagerNamespace,
 		SetName:   TransactionGlobal,
 		IndexName: "st_nxt_ctime",
 		BinNames:  *bins,
@@ -706,44 +677,39 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 		}
 		id := res.Record.Key
 		bins := res.Record.Bins
-		status := bins["status"].(string)
-		nextCronTime := convertASIntInterfaceToTime(bins["next_cron_time"])
 
-		//logger.Debugf("LockOneGlobalTrans: gid (%s) expires (%s)", bins["gid"].(string), nextCronTime.String())
+		if counter < 1 {
+			logger.Debugf("LockOneGlobalTrans: record found gid(%s) status (%s)", bins["gid"].(string), bins["status"].(string))
+			next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
+			bins["update_time"] = time.Now().UnixNano()
+			bins["next_cron_time"] = next
+			bins["owner"] = owner
+			err = client.Put(updatePolicy, id, bins)
 
-		if (nextCronTime.UnixNano() < expiredTime) && (status == "prepared" || status == "aborting" || status == "submitted") {
-			if counter < 1 {
-				logger.Debugf("LockOneGlobalTrans: record found gid(%s) status (%s)", bins["gid"].(string), bins["status"].(string))
-				next := time.Now().Add(time.Duration(conf.RetryInterval) * time.Second).UnixNano()
-				bins["update_time"] = time.Now().UnixNano()
-				bins["next_cron_time"] = next
-				bins["owner"] = owner
-				err = client.Put(updatePolicy, id, bins)
-
-				if err != nil {
-					logger.Errorf("LockOneGlobalTrans: error updating global transaction id %v, bins:%v", id, bins)
-					dtmimp.E2P(err)
-				}
-				logger.Debugf("LockOneGlobalTrans: locking a trans: %v", bins) // with gid %s and owner %s", bins["gid"].(string), owner")
-				// found the first one
-				// Now go retrieve it and return using the key
-
-				policy := &as.BasePolicy{}
-
-				bins := getTransGlobalTableBins()
-				record, err := client.Get(policy, res.Record.Key, *bins...)
-				if err != nil {
-					logger.Errorf("LockOneGlobalTrans: retrieved found trans gid(%s)", res.Record.Bins["gid"].(string))
-					return nil
-				}
-				logger.Debugf("LockOneGlobalTrans: record: %v", record) // with gid %s and owner %s", bins["gid"].(string), owner")
-				resultTrans := convertAerospikeRecordToTransGlobalRecord(record)
-				counter++
-				return resultTrans
-
-			} else {
-				break
+			if err != nil {
+				logger.Errorf("LockOneGlobalTrans: error updating global transaction id %v, bins:%v", id, bins)
+				logger.Errorf("LockOneGlobalTrans: %s", err)
+				return nil
 			}
+			logger.Debugf("LockOneGlobalTrans: locking a trans: %v", bins) // with gid %s and owner %s", bins["gid"].(string), owner")
+			// found the first one
+			// Now go retrieve it and return using the key
+
+			policy := &as.BasePolicy{}
+
+			bins := getTransGlobalTableBins()
+			record, err := client.Get(policy, res.Record.Key, *bins...)
+			if err != nil {
+				logger.Errorf("LockOneGlobalTrans: retrieved found trans gid(%s)", res.Record.Bins["gid"].(string))
+				return nil
+			}
+			logger.Debugf("LockOneGlobalTrans: record: %v", record) // with gid %s and owner %s", bins["gid"].(string), owner")
+			resultTrans := convertAerospikeRecordToTransGlobalRecord(record)
+			counter++
+			return resultTrans
+
+		} else {
+			break
 		}
 	}
 	return nil
@@ -751,23 +717,28 @@ func LockOneGlobalTransTrans(expireIn time.Duration) *storage.TransGlobalStore {
 
 // Todo review and optimize this code.
 // ResetCronTimeGlobalTran
-func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
-	logger.Debugf("ResetCronTimeGlobalTran: timeout %v limit(%d)", timeout, limit)
+func ResetCronTimeGlobalTran(after time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
+	logger.Debugf("ResetCronTimeGlobalTran: timeout %v limit(%d)", after, limit)
 	client := aerospikeGet()
 	defer aerospikePut(client)
 
+	nextCronTime := getTimeStr(int64(after / time.Second))
+
 	policy := as.NewQueryPolicy()
+	nextCronTimeExp := as.ExpGreater(as.ExpIntBin("next_cron_time"), as.ExpIntVal(nextCronTime))
+	statusPrepareExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("prepared"))
+	statusAbortingExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("aborting"))
+	statusSubmittedExp := as.ExpEq(as.ExpStringBin("status"), as.ExpStringVal("submitted"))
 
-	expiredTime := time.Now().Add(timeout)
-	expired := expiredTime.UnixNano()
-	logger.Debugf("ResetCronTimeGlobalTran: where expired greater then: %d, realtime (%s)", expired, expiredTime.String())
+	statusOr := as.ExpOr(statusPrepareExp, statusAbortingExp, statusSubmittedExp)
 
-	whereTime := as.ExpGreater(as.ExpIntBin("next_cron_time"), as.ExpIntVal(expired))
+	where := as.ExpAnd(nextCronTimeExp, statusOr)
 
-	policy.FilterExpression = whereTime
-	var bins = []string{"gid", "status", "next_cron_time"}
+	policy.FilterExpression = where
+
+	var bins = []string{"gid", "status", "next_cron_time", "update_time"}
 	statement := &as.Statement{
-		Namespace: SCHEMA,
+		Namespace: TransactionManagerNamespace,
 		SetName:   TransactionGlobal,
 		IndexName: "st_nxt_ctime",
 		BinNames:  bins,
@@ -799,97 +770,57 @@ func ResetCronTimeGlobalTran(timeout time.Duration, limit int64) (succeedCount i
 
 	succeedCount = 0
 	resultCounter := int64(0)
+	var rerr error
+	rerr = nil
 	for res := range rs.Results() {
 		if res.Err != nil {
 			logger.Errorf("ResetCronTimeGlobalTran: results error: %s", err)
-			dtmimp.E2P(res.Err)
+			if err != nil {
+				rerr = err
+				break
+			}
+			//dtmimp.E2P(res.Err)
 		}
 		if resultCounter < limit {
-			id := res.Record.Key
+			key := res.Record.Key
 			bins := res.Record.Bins
-			status := bins["status"].(string)
-			expireValue := convertASIntInterfaceToTime(bins["next_cron_time"])
-			logger.Debugf("ResetCronTimeGlobalTran: gid (%s) expires (%s)", bins["gid"].(string), expireValue.String())
-			if status == "prepared" || status == "aborting" || status == "submitted" {
-				bins["next_cron_time"] = dtmutil.GetNextTime(0).UnixNano()
-				err = client.Put(updatePolicy, id, bins)
+
+			bins["next_cron_time"] = getTimeStr(0)
+			bins["update_time"] = getTimeStr(0)
+			err = client.Put(updatePolicy, key, bins)
+			if err != nil {
+				logger.Errorf("error updating global transaction id %v, bins:%v", key, bins)
 				if err != nil {
-					logger.Errorf("error updating global transaction id %v, bins:%v", id, bins)
-					dtmimp.E2P(err)
+					rerr = err
+					break
 				}
-				succeedCount++
+				//dtmimp.E2P(err)
 			}
+			succeedCount++
 		}
 		resultCounter++
 	}
 
-	logger.Debugf("ResetCronTimeGlobalTran: succeedCount (%d) resultsCounter(%d)", succeedCount, resultCounter)
-	if succeedCount == 0 {
+	logger.Debugf("ResetCronTimeGlobalTran: succeedCount (%d) resultsCounter(%d) limit(%d)", succeedCount, resultCounter, limit)
+
+	if succeedCount == limit {
+		hasRemaining = true
+	} else {
 		hasRemaining = false
-		return
 	}
 
-	if succeedCount <= limit && succeedCount != 0 {
-		logger.Debugf("ResetCronTimeGlobalTran: succeedCount(%d) == limit(%d)", succeedCount, limit)
-		//policy.MaxRecords = int64(1)
-		rs2, err := client.Query(policy, statement)
-		if err != nil {
-			logger.Errorf("ResetCronTimeGlobalTran: query error: %s", err)
-			return 0, false, err
-		}
-
-		counter := 0
-		for res := range rs2.Results() {
-
-			if res.Err != nil {
-				logger.Errorf("ResetCronTimeGlobalTran: results error: %s", err)
-				dtmimp.E2P(res.Err)
-			}
-			bins := res.Record.Bins
-			status := bins["status"].(string)
-
-			if status == "prepared" || status == "aborting" || status == "submitted" {
-				counter++
-			}
-
-		}
-
-		if succeedCount < limit {
-			hasRemaining = true
-		}
-
-		if counter > 0 {
-			logger.Debugf("ResetCronTimeGlobalTran: checking for remaining counter = %d remaining %t", counter, hasRemaining)
-			hasRemaining = true
-		} else {
-			hasRemaining = false
-			logger.Debugf("ResetCronTimeGlobalTran: checking for remaining counter = %d remaining %t", counter, hasRemaining)
-		}
+	if resultCounter == 0 {
+		hasRemaining = false
 	}
 
-	return
+	return succeedCount, hasRemaining, rerr
 }
 
 func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval int64, nextCronTime *time.Time) {
 	client := aerospikeGet()
 	defer aerospikePut(client)
 
-	policy := as.NewQueryPolicy()
-
-	filter := as.NewEqualFilter("gid", global.Gid)
-
-	var bins = []string{"gid", "status", "update_time", "next_cron_time", "nxt_cron_intrvl"}
-	statement := &as.Statement{
-		Namespace: SCHEMA,
-		SetName:   TransactionGlobal,
-		IndexName: "TXM_GID",
-		BinNames:  bins,
-		Filter:    filter,
-		TaskId:    0,
-	}
-
-	rs, err := client.Query(policy, statement)
-	defer closeResults(rs)
+	record, err := getTransGlobalStoreWithStatus(client, global.Gid, global.Status)
 	dtmimp.E2P(err)
 
 	updatePolicy := &as.WritePolicy{
@@ -905,42 +836,42 @@ func TouchCronTimeGlobalTran(global *storage.TransGlobalStore, nextCronInterval 
 		DurableDelete:      true,
 	}
 
-	for res := range rs.Results() {
-		id := res.Record.Key
-		resBin := res.Record.Bins
-		resBin["status"] = global.Status
-		resBin["update_time"] = dtmutil.GetNextTime(0).UnixNano()
-		resBin["next_cron_time"] = nextCronTime.UnixNano()
-		resBin["nxt_cron_intrvl"] = nextCronInterval
+	key := record.Key
+	resBin := record.Bins
+	resBin["status"] = global.Status
+	resBin["update_time"] = dtmutil.GetNextTime(0).UnixNano()
+	resBin["next_cron_time"] = nextCronTime.UnixNano()
+	resBin["nxt_cron_intrvl"] = nextCronInterval
 
-		err = client.Put(updatePolicy, id, resBin)
-		if err != nil {
-			logger.Errorf("error updating global transaction id %v, bins:%v", id, resBin)
-			dtmimp.E2P(err)
-		}
+	err = client.Put(updatePolicy, key, resBin)
+	if err != nil {
+		logger.Errorf("error updating global transaction id %v, bins:%v", key, resBin)
+		dtmimp.E2P(err)
 	}
+
 }
 
 // getTransGlobalBranches
 // @Description: get the branchs bin for a Global Transaction and returns a list of xids for branches
-func getTransGlobalBranches(gid string) *[]xid.ID {
-	client := aerospikeGet()
-	defer aerospikePut(client)
-
+func getTransGlobalBranches(client *as.Client, gid string) (*[]xid.ID, error) {
 	policy := &as.BasePolicy{}
 	if gid == "" {
 		logger.Infof("GetTransGlobal: gid is empty")
 	}
 	logger.Debugf("GetTransGlobal: gid being retrieved: %s", gid)
 
-	key, err := as.NewKey(SCHEMA, TransactionGlobal, gid)
-	dtmimp.E2P(err)
+	key, err := as.NewKey(TransactionManagerNamespace, TransactionGlobal, gid)
+	if err != nil {
+		//dtmimp.E2P(err)
+		logger.Errorf("getTransGlobalBranches: %s", err.Error())
+		return nil, err
+	}
 
 	bins := getTransGlobalTableBins()
 	record, err := client.Get(policy, key, *bins...)
 	if err != nil {
 		logger.Errorf("GetTransGlobal: %s", err)
-		return nil
+		return nil, err
 	}
 
 	var branchList []xid.ID
@@ -952,14 +883,14 @@ func getTransGlobalBranches(gid string) *[]xid.ID {
 			txid, err := xid.FromBytes(xidBytes)
 			if err != nil {
 				logger.Errorf("GetTransGlobal: %s", err)
-				return nil
+				return nil, err
 			}
 			branchList = append(branchList, txid)
 		}
 
 	}
 
-	return &branchList
+	return &branchList, nil
 }
 
 func updateTransGlobalBranchList(gid string, txid *xid.ID) error {
@@ -1061,9 +992,10 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 	for _, branch := range branches {
 
 		txid := xid.New()
-		key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
-		//key, err := as.NewKey(SCHEMA, TransactionBranchOp, branch.BranchID)
-		dtmimp.E2P(err)
+		key, err := as.NewKey(TransactionManagerNamespace, TransactionBranchOp, txid.Bytes())
+		if err != nil {
+			return nil, err
+		}
 
 		gid_branch_uniq := map[string]interface{}{
 			"gid":       branch.Gid,
@@ -1117,37 +1049,39 @@ func newTransBranchOpSet(branches []storage.TransBranchStore) (*[]xid.ID, error)
 }
 
 /// GetBranchs
-func GetBranchs(gid string) *[]storage.TransBranchStore {
+func GetBranchs(gid string) (*[]storage.TransBranchStore, error) {
 	client := aerospikeGet()
 	defer aerospikePut(client)
 
 	policy := &as.BasePolicy{}
 
-	branchList := getTransGlobalBranches(gid)
-	if branchList == nil {
-		return nil
+	branchList, err := getTransGlobalBranches(client, gid)
+	if err != nil {
+		logger.Errorf("GetBranchs: No Branches found")
+		logger.Errorf("GetBranchs: %s", err)
+		return nil, err
 	}
 
 	var results []storage.TransBranchStore
 	var bins = getBranchOpSetBins()
 	for _, branch := range *branchList {
 		txid := branch
-		key, err := as.NewKey(SCHEMA, TransactionBranchOp, txid.Bytes())
+		key, err := as.NewKey(TransactionManagerNamespace, TransactionBranchOp, txid.Bytes())
 		if err != nil {
 			logger.Errorf("GetBranches: %s", err)
-			return nil
+			return nil, err
 		}
 		record, err := client.Get(policy, key, *bins...)
 		if err != nil {
 			logger.Errorf("GetBranches: %s", err)
-			return nil
+			return nil, err
 		}
 		logger.Debugf("retrieved record: txid(%v)", record.Key.String())
 		result := convertASRecordToTransBranchStore(record)
 		results = append(results, *result)
 	}
 
-	return &results
+	return &results, nil
 }
 
 func UpdateBranchsWithGIDStatus(gid string, status string, branches []storage.TransBranchStore) error {
@@ -1482,4 +1416,8 @@ func closeResults(rs *as.Recordset) {
 			logger.Errorf("error closing aerospike results, %s", err)
 		}
 	}
+}
+
+func getTimeStr(afterSecond int64) int64 {
+	return dtmutil.GetNextTime(afterSecond).UnixNano()
 }
