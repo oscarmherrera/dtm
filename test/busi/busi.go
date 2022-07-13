@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-
+	"github.com/aerospike/aerospike-client-go/v5"
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -14,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	"strings"
+	"time"
 )
 
 // TransOutUID 1
@@ -27,6 +28,9 @@ const Redis = "redis"
 
 // Mongo 1
 const Mongo = "mongo"
+
+// Aerospike 1
+const Aerospike = "aerospike"
 
 func handleGrpcBusiness(in *BusiReq, result1 string, result2 string, busi string) error {
 	res := dtmimp.OrString(result1, result2, dtmcli.ResultSuccess)
@@ -103,6 +107,50 @@ func SagaMongoAdjustBalance(ctx context.Context, mc *mongo.Client, uid int, amou
 	balance := res["balance"].(float64)
 	if balance < 0 {
 		return fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
+	}
+	return nil
+}
+
+// SagaAerospikeAdjustBalance
+func SagaAerospikeAdjustBalance(client *aerospike.Client, uid int, amount int, result string) error {
+	logger.Debugf("SagaAerospikeAdjustBalance: userId(%d) amount(%d)", uid, amount)
+	if strings.Contains(result, dtmcli.ResultFailure) {
+		logger.Debugf("SagaAerospikeAdjustBalance: %s", result)
+		return dtmcli.ErrFailure
+	}
+
+	updatePolicy := &aerospike.WritePolicy{
+		BasePolicy: aerospike.BasePolicy{
+			TotalTimeout: 9000 * time.Millisecond,
+		},
+		RecordExistsAction: aerospike.UPDATE_ONLY,
+		GenerationPolicy:   0,
+		CommitLevel:        aerospike.COMMIT_ALL,
+		Generation:         0,
+		Expiration:         0,
+		RespondPerEachOp:   false,
+		DurableDelete:      true,
+	}
+
+	key, err := aerospike.NewKey("dtm_busi", "user_account", uid)
+	if err != nil {
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
+		return err
+	}
+
+	amountBin := aerospike.NewBin("balance", float64(amount))
+
+	accountResult, err := client.Operate(updatePolicy, key, aerospike.AddOp(amountBin), aerospike.GetOp())
+	if err != nil {
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
+		return err
+	}
+
+	balance := accountResult.Bins["balance"].(float64)
+	if balance < 0 {
+		err := fmt.Errorf("balance not enough %w", dtmcli.ErrFailure)
+		logger.Errorf("SagaAerospikeAdjustBalance: %s", err)
+		return err
 	}
 	return nil
 }

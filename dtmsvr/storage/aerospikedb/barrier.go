@@ -23,12 +23,12 @@ func createBarrierSet() {
 	//CONSTRAINT uniq_barrier unique(gid, branch_id, op, barrier_id)
 	//);
 	client := aerospikeGet()
-	defer connectionPools.Put(client)
+	defer aerospikePut(client)
 
 	var barrier dtmcli.BranchBarrier
 
 	txid := xid.New()
-	key, err := as.NewKey(SCHEMA, BranchBarrier, txid.Bytes())
+	key, err := as.NewKey(TransactionManagerNamespace, BranchBarrierTable, txid.Bytes())
 	dtmimp.E2P(err)
 
 	uniq_barrier := map[string]interface{}{
@@ -39,6 +39,7 @@ func createBarrierSet() {
 	}
 
 	bins := as.BinMap{
+		"txid":         txid,
 		"trans_type":   barrier.TransType,
 		"gid":          barrier.Gid,
 		"branch_id":    barrier.BranchID,
@@ -59,24 +60,49 @@ func createBarrierSet() {
 	dtmimp.E2P(err)
 
 	//create index if not EXISTS xid ;
-	indexTaskXid, err := client.CreateIndex(policy, TransactionManagerNamespace, BranchBarrier, "TXM_XID", "xid", as.STRING)
+	indexTaskXid, err := client.CreateIndex(policy, TransactionManagerNamespace, BranchBarrierTable, "TXM_BARRIER_XID", "txid", as.STRING)
 	dtmimp.E2P(err)
 	IdxerrXid := <-indexTaskXid.OnComplete()
 	dtmimp.E2P(IdxerrXid)
 
 	//create index if not EXISTS gid on branch_barrier(gid);
-	indexTask, err := client.CreateIndex(policy, TransactionManagerNamespace, BranchBarrier, "TXM_GID", "gid", as.STRING)
+	indexTask, err := client.CreateIndex(policy, TransactionManagerNamespace, BranchBarrierTable, "TXM_BARRIER_GID", "gid", as.STRING)
 	dtmimp.E2P(err)
 
 	Idxerr := <-indexTask.OnComplete()
 	dtmimp.E2P(Idxerr)
 
 	//create index if not EXISTS uniq_barrier on branch_barrier (gid,branch_id,op,barrier_id);
-	indexTask2, err := client.CreateComplexIndex(policy, TransactionManagerNamespace, BranchBarrier, "UNIQ_BARRIER", "uniq_barrier", as.STRING, as.ICT_MAPVALUES)
+	indexTask2, err := client.CreateComplexIndex(policy, TransactionManagerNamespace, BranchBarrierTable, "UNIQ_BARRIER", "uniq_barrier", as.STRING, as.ICT_MAPVALUES)
 	Idxerr2 := <-indexTask2.OnComplete()
 	dtmimp.E2P(Idxerr2)
 
 	now := time.Now()
-	errTruncate := client.Truncate(policy, SCHEMA, BranchBarrier, &now)
+	errTruncate := client.Truncate(policy, SCHEMA, BranchBarrierTable, &now)
 	dtmimp.E2P(errTruncate)
+}
+
+func dropBarrierSet() {
+	//drop table IF EXISTS dtm.trans_global;
+	client := aerospikeGet()
+	defer aerospikePut(client)
+
+	writePolicy := &as.WritePolicy{
+		RecordExistsAction: as.REPLACE,
+		DurableDelete:      true,
+		CommitLevel:        as.COMMIT_MASTER,
+	}
+	now := time.Now()
+	err := client.Truncate(writePolicy, TransactionManagerNamespace, BranchBarrierTable, &now)
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, TransactionManagerNamespace, BranchBarrierTable, "TXM_BARRIER_XID")
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, TransactionManagerNamespace, BranchBarrierTable, "TXM_BARRIER_GID")
+	dtmimp.E2P(err)
+
+	err = client.DropIndex(writePolicy, TransactionManagerNamespace, BranchBarrierTable, "UNIQ_BARRIER")
+	dtmimp.E2P(err)
+
 }

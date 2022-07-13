@@ -9,6 +9,9 @@ package busi
 import (
 	"context"
 	"database/sql"
+	"github.com/dtm-labs/dtm/dtmcli/logger"
+	"net/http"
+	"time"
 
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmgrpc"
@@ -156,6 +159,53 @@ func init() {
 				return SagaMongoAdjustBalance(sc, sc.Client(), TransOutUID, reqFrom(c).Amount, "")
 			})
 		}))
+
+		//Aerospike
+
+		app.POST(BusiAPI+"/SagaAerospikeTransIn", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
+			logger.Debugf(BusiAPI + "/SagaAerospikeTransIn")
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			bb := MustBarrierFromGin(c)
+			return bb.AerospikeCall(client, func() error {
+				logger.Debugf(BusiAPI+"/SagaAerospikeTransIn: Calling bus function: uid(%d) amount(%d)", TransInUID, reqFrom(c).Amount)
+				return SagaAerospikeAdjustBalance(client, TransInUID, reqFrom(c).Amount, reqFrom(c).TransInResult)
+			})
+		}))
+		app.POST(BusiAPI+"/SagaAerospikeTransInCom", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
+			logger.Debugf(BusiAPI + "/SagaAerospikeTransInCom")
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
+				logger.Debugf(BusiAPI+"/SagaAerospikeTransInCom: Calling bus function: amount(%d)", reqFrom(c).Amount)
+				return SagaAerospikeAdjustBalance(client, TransInUID, -reqFrom(c).Amount, "")
+			})
+		}))
+		app.POST(BusiAPI+"/SagaAerospikeTransOut", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
+			logger.Debugf(BusiAPI + "/SagaAerospikeTransOut")
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
+				logger.Debugf(BusiAPI+"/SagaAerospikeTransOut: Calling bus function: amount(%d)", reqFrom(c).Amount)
+				return SagaAerospikeAdjustBalance(client, TransOutUID, -reqFrom(c).Amount, reqFrom(c).TransOutResult)
+			})
+		}))
+		app.POST(BusiAPI+"/SagaAerospikeTransOutCom", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
+			logger.Debugf(BusiAPI + "/SagaAerospikeTransOutCom")
+			client := aerospikeGet()
+			defer aerospikePut(client)
+			return MustBarrierFromGin(c).AerospikeCall(client, func() error {
+				asClient := aerospikeGet()
+				defer aerospikePut(asClient)
+				logger.Debugf(BusiAPI+"/SagaAerospikeTransOutCom: Calling bus function: amount(%d)", reqFrom(c).Amount)
+				return SagaAerospikeAdjustBalance(client, TransOutUID, reqFrom(c).Amount, "")
+			})
+		}))
+
 		app.POST(BusiAPI+"/TccBTransOutTry", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 			req := reqFrom(c)
 			if req.TransOutResult != "" {
@@ -261,4 +311,10 @@ func (s *busiServer) QueryPreparedRedis(ctx context.Context, in *BusiReq) (*empt
 	barrier := MustBarrierFromGrpc(ctx)
 	err := barrier.RedisQueryPrepared(RedisGet(), 86400)
 	return &emptypb.Empty{}, dtmgrpc.DtmError2GrpcError(err)
+}
+
+func emptySuccessResponse(c *gin.Context) {
+	time.Sleep(2000 * time.Millisecond)
+	c.String(http.StatusOK, "")
+	logger.Errorf("emptySuccessResponse: timeout reached")
 }

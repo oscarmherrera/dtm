@@ -134,6 +134,14 @@ func BaseAddRoute(app *gin.Engine) {
 		bb := MustBarrierFromGin(c)
 		return bb.MongoQueryPrepared(MongoGet())
 	}))
+	app.GET(BusiAPI+"/AerospikeQueryPrepared", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
+		client := aerospikeGet()
+		defer aerospikePut(client)
+		logger.Debugf("%s AerospikeQueryPrepared", c.Query("gid"))
+		bb := MustBarrierFromGin(c)
+		return bb.AerospikeQueryPrepared(client)
+
+	}))
 	app.POST(BusiAPI+"/TransInXa", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
 		return dtmcli.XaLocalTransaction(c.Request.URL.Query(), BusiConf, func(db *sql.DB, xa *dtmcli.Xa) error {
 			return SagaAdjustBalance(db, TransInUID, reqFrom(c).Amount, reqFrom(c).TransInResult)

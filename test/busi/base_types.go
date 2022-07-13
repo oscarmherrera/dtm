@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	as "github.com/aerospike/aerospike-client-go/v5"
-
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -56,7 +55,8 @@ func GetBalanceByUID(uid int, store string) int {
 		dtmimp.E2P(err)
 		return int(result["balance"].(float64))
 	} else if store == "aerospike" {
-		asc := AerospikeGet()
+		asc := aerospikeGet()
+		defer aerospikePut(asc)
 
 		key, err := as.NewKey("dtm_busi", "user_account", uid)
 		dtmimp.E2P(err)

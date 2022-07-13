@@ -158,8 +158,10 @@ func MongoGet() *mongo.Client {
 }
 
 //SetAerospikeBothAccount 1
-func SetAerospikeBothAccount(amountA int, ammountB int) {
-	asc := AerospikeGet()
+func SetAerospikeBothAccount(amountA int, amountB int) {
+	asc := aerospikeGet()
+	defer aerospikePut(asc)
+
 	policy := asc.DefaultWritePolicy
 
 	outKey := GetAerospikeAccountKey(TransOutUID)
@@ -171,7 +173,7 @@ func SetAerospikeBothAccount(amountA int, ammountB int) {
 	dtmimp.E2P(err)
 
 	inKey := GetAerospikeAccountKey(TransInUID)
-	valueIn := float64(amountA)
+	valueIn := float64(amountB)
 	binMapIn := as.BinMap{
 		"balance": valueIn,
 	}
@@ -221,14 +223,30 @@ func SetupMongoBarrierAndBusi() {
 	SetMongoBothAccount(10000, 10000)
 }
 
-func AerospikeGet() *as.Client {
+func aerospikePut(c *as.Client) {
+	//aerospikeClientPool.Put(c)
+	c.Close()
+
+}
+
+func aerospikeGet() *as.Client {
+
+	seedserver := "10.211.55.200"
 
 	policy := as.NewClientPolicy()
-	policy.MinConnectionsPerNode = 50
-	policy.User = "admin"
-	policy.Password = "admin"
-	policy.Timeout = time.Duration(60 * time.Second)
-	client, err := as.NewClientWithPolicy(policy, "10.211.55.200", 3000)
+	policy.MinConnectionsPerNode = 5
+	policy.Timeout = time.Duration(5 * time.Minute)
+
+	client, err := as.NewClientWithPolicy(policy, seedserver, 3000)
 	dtmimp.E2P(err)
+	//asClient = client
 	return client
+}
+
+func AerospikePut(c *as.Client) {
+	aerospikePut(c)
+}
+
+func AerospikeGet() *as.Client {
+	return aerospikeGet()
 }

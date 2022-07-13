@@ -3,6 +3,7 @@ package busi
 import (
 	"context"
 	"fmt"
+	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmutil"
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,12 @@ func Startup() *gin.Engine {
 	return BaseAppStartup()
 }
 
-// PopulateDB populate example mysql data
-func PopulateDB(skipDrop bool, busiDriver string) {
+//var aerospikeClientPool *pooler.ASConnectionPool
 
-	switch busiDriver {
+// PopulateDB populate example mysql data
+func PopulateDB(skipDrop bool, busiConfig dtmcli.DBConf) {
+
+	switch busiConfig.Driver {
 	case "redis":
 		_, err := RedisGet().FlushAll(context.Background()).Result() // redis barrier need clear
 		dtmimp.E2P(err)

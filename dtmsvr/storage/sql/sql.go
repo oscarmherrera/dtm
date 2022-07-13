@@ -8,6 +8,7 @@ package sql
 
 import (
 	"fmt"
+	"github.com/dtm-labs/dtm/dtmcli/logger"
 	"math"
 	"time"
 
@@ -42,6 +43,7 @@ func (s *Store) PopulateData(skipDrop bool) {
 
 // FindTransGlobalStore finds GlobalTrans data by gid
 func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
+	logger.Debugf("FindTransGlobalStore:")
 	trans := &storage.TransGlobalStore{}
 	dbr := dbGet().Model(trans).Where("gid=?", gid).First(trans)
 	if dbr.Error == gorm.ErrRecordNotFound {
@@ -53,6 +55,7 @@ func (s *Store) FindTransGlobalStore(gid string) *storage.TransGlobalStore {
 
 // ScanTransGlobalStores lists GlobalTrans data
 func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.TransGlobalStore {
+	logger.Debugf("ScanTransGlobalStores:")
 	globals := []storage.TransGlobalStore{}
 	lid := math.MaxInt64
 	if *position != "" {
@@ -69,6 +72,7 @@ func (s *Store) ScanTransGlobalStores(position *string, limit int64) []storage.T
 
 // FindBranches finds Branch data by gid
 func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
+	logger.Debugf("FindBranches:")
 	branches := []storage.TransBranchStore{}
 	dbGet().Must().Where("gid=?", gid).Order("id asc").Find(&branches)
 	return branches
@@ -76,6 +80,7 @@ func (s *Store) FindBranches(gid string) []storage.TransBranchStore {
 
 // UpdateBranches update branches info
 func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []string) (int, error) {
+	logger.Debugf("UpdateBranches:")
 	db := dbGet().Clauses(clause.OnConflict{
 		OnConstraint: "trans_branch_op_pkey",
 		DoUpdates:    clause.AssignmentColumns(updates),
@@ -85,6 +90,7 @@ func (s *Store) UpdateBranches(branches []storage.TransBranchStore, updates []st
 
 // LockGlobalSaveBranches creates branches
 func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []storage.TransBranchStore, branchStart int) {
+	logger.Debugf("LockGlobalSaveBranches:")
 	err := dbGet().Transaction(func(tx *gorm.DB) error {
 		g := &storage.TransGlobalStore{}
 		dbr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Model(g).Where("gid=? and status=?", gid, status).First(g)
@@ -98,6 +104,7 @@ func (s *Store) LockGlobalSaveBranches(gid string, status string, branches []sto
 
 // MaySaveNewTrans creates a new trans
 func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []storage.TransBranchStore) error {
+	logger.Debugf("MaySaveNewTrans:")
 	return dbGet().Transaction(func(db1 *gorm.DB) error {
 		db := &dtmutil.DB{DB: db1}
 		dbr := db.Must().Clauses(clause.OnConflict{
@@ -117,6 +124,7 @@ func (s *Store) MaySaveNewTrans(global *storage.TransGlobalStore, branches []sto
 
 // ChangeGlobalStatus changes global trans status
 func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus string, updates []string, finished bool) {
+	logger.Debugf("ChangeGlobalStatus:")
 	old := global.Status
 	global.Status = newStatus
 	dbr := dbGet().Must().Model(global).Where("status=? and gid=?", old, global.Gid).Select(updates).Updates(global)
@@ -127,6 +135,7 @@ func (s *Store) ChangeGlobalStatus(global *storage.TransGlobalStore, newStatus s
 
 // TouchCronTime updates cronTime
 func (s *Store) TouchCronTime(global *storage.TransGlobalStore, nextCronInterval int64, nextCronTime *time.Time) {
+	logger.Debugf("TouchCronTime:")
 	global.UpdateTime = dtmutil.GetNextTime(0)
 	global.NextCronTime = nextCronTime
 	global.NextCronInterval = nextCronInterval
@@ -136,6 +145,7 @@ func (s *Store) TouchCronTime(global *storage.TransGlobalStore, nextCronInterval
 
 // LockOneGlobalTrans finds GlobalTrans
 func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalStore {
+	logger.Debugf("LockOneGlobalTrans:")
 	db := dbGet()
 	owner := shortuuid.New()
 	nextCronTime := getTimeStr(int64(expireIn / time.Second))
@@ -163,6 +173,7 @@ func (s *Store) LockOneGlobalTrans(expireIn time.Duration) *storage.TransGlobalS
 // ResetCronTime reset nextCronTime
 // unfinished transactions need to be retried as soon as possible after business downtime is recovered
 func (s *Store) ResetCronTime(after time.Duration, limit int64) (succeedCount int64, hasRemaining bool, err error) {
+	logger.Debugf("ResetCronTime:")
 	nextCronTime := getTimeStr(int64(after / time.Second))
 	where := map[string]string{
 		dtmimp.DBTypeMysql:    fmt.Sprintf(`next_cron_time > '%s' and status in ('prepared', 'aborting', 'submitted') limit %d`, nextCronTime, limit),
