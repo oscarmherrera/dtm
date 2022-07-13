@@ -313,6 +313,60 @@ func (s *busiServer) QueryPreparedRedis(ctx context.Context, in *ReqGrpc) (*empt
 	return &emptypb.Empty{}, dtmgrpc.DtmError2GrpcError(err)
 }
 
+func (s *busiServer) QueryPreparedAerospike(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
+	logger.Debugf("/QueryPreparedAerospike")
+	client := aerospikeGet()
+	defer aerospikePut(client)
+
+	barrier := MustBarrierFromGrpc(ctx)
+	err := barrier.AerospikeQueryPrepared(client)
+	return &emptypb.Empty{}, dtmgrpc.DtmError2GrpcError(err)
+}
+
+func (s *busiServer) TransInAerospike(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
+	logger.Debugf(Busi + "/TransInAerospike")
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	bb := MustBarrierFromGrpc(ctx)
+	return &emptypb.Empty{}, bb.AerospikeCall(client, func() error {
+		logger.Debugf(BusiGrpc+"/TransInAerospike: Calling bus function: uid(%d) amount(%d)", TransInUID, int(in.Amount))
+		return SagaAerospikeAdjustBalance(client, TransInUID, int(in.Amount), in.TransInResult)
+	})
+}
+
+func (s *busiServer) TransOutAerospike(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
+	logger.Debugf("/TransOutAerospike")
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	bb := MustBarrierFromGrpc(ctx)
+	return &emptypb.Empty{}, bb.AerospikeCall(client, func() error {
+		logger.Debugf(BusiGrpc+"/SagaAerospikeTransOut: Calling bus function: amount(%d)", int(-in.Amount))
+		return SagaAerospikeAdjustBalance(client, TransOutUID, int(-in.Amount), in.TransOutResult)
+	})
+}
+
+func (s *busiServer) TransInRevertAerospike(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
+	logger.Debugf("/TransInRevertAerospike")
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	bb := MustBarrierFromGrpc(ctx)
+	return &emptypb.Empty{}, bb.AerospikeCall(client, func() error {
+		logger.Debugf(BusiGrpc+"/TransInRevertAerospike: Calling bus function: amount(%d)", int(-in.Amount))
+		return SagaAerospikeAdjustBalance(client, TransInUID, int(-in.Amount), in.TransInResult)
+	})
+}
+
+func (s *busiServer) TransOutRevertAerospike(ctx context.Context, in *ReqGrpc) (*emptypb.Empty, error) {
+	logger.Debugf("/TransOutRevertAerospike")
+	client := aerospikeGet()
+	defer aerospikePut(client)
+	bb := MustBarrierFromGrpc(ctx)
+	return &emptypb.Empty{}, bb.AerospikeCall(client, func() error {
+		logger.Debugf(BusiGrpc+"/TransOutRevertAerospike: Calling bus function: amount(%d)", int(-in.Amount))
+		return SagaAerospikeAdjustBalance(client, TransOutUID, int(in.Amount), in.TransOutResult)
+	})
+}
+
 func emptySuccessResponse(c *gin.Context) {
 	time.Sleep(2000 * time.Millisecond)
 	c.String(http.StatusOK, "")
