@@ -45,6 +45,17 @@ func TestMain(m *testing.M) {
 	conf.Store.Host = "localhost"
 	conf.Store.Db = ""
 	switch conf.Store.Driver {
+	case "redis":
+		conf.Store.Driver = "redis"
+		conf.Store.User = ""
+		conf.Store.Password = ""
+		conf.Store.Port = 6379
+
+		busi.BusiConf.Driver = conf.Store.Driver
+		busi.BusiConf.User = conf.Store.User
+		busi.BusiConf.Password = conf.Store.Password
+		busi.BusiConf.Port = conf.Store.Port
+		busi.BusiConf.Host = conf.Store.Host
 	case "boltdb":
 		conf.Store.Driver = "boltdb"
 	case "mysql":
