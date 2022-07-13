@@ -3,9 +3,14 @@
  * Use of this source code is governed by a BSD-style
  * license that can be found in the LICENSE file.
  */
+
 package test
 
 import (
+	"os"
+	"testing"
+	"time"
+
 	"github.com/dtm-labs/dtm/dtmcli"
 	"github.com/dtm-labs/dtm/dtmcli/dtmimp"
 	"github.com/dtm-labs/dtm/dtmcli/logger"
@@ -17,38 +22,37 @@ import (
 	"github.com/dtm-labs/dtm/dtmutil"
 	"github.com/dtm-labs/dtm/test/busi"
 	"github.com/go-resty/resty/v2"
-	"os"
-	"testing"
-	"time"
 )
 
 func TestMain(m *testing.M) {
-	config.MustLoadConfig("../test.yml")
-	//logger.InitLog("info")
+	config.MustLoadConfig("")
 	logger.InitLog("debug")
 	dtmsvr.TransProcessedTestChan = make(chan string, 1)
 	dtmsvr.NowForwardDuration = 0 * time.Second
 	dtmsvr.CronForwardDuration = 180 * time.Second
 	conf.UpdateBranchSync = 1
+
 	dtmgrpc.AddUnaryInterceptor(busi.SetGrpcHeaderForHeadersYes)
 	dtmcli.GetRestyClient().OnBeforeRequest(busi.SetHTTPHeaderForHeadersYes)
 	dtmcli.GetRestyClient().OnAfterResponse(func(c *resty.Client, resp *resty.Response) error { return nil })
 
-	tenv := os.Getenv("TEST_STORE")
-	// tenv := dtmimp.OrString(os.Getenv("TEST_STORE"), config.Redis)
-	// conf.Store.Host = "localhost"
-	conf.Store.Driver = tenv
-
+	tenv := dtmimp.OrString(os.Getenv("TEST_STORE"), config.Redis)
 	conf.Store.Host = "localhost"
-	conf.Store.Db = ""
-	switch tenv {
-	case "boltdb":
-		conf.Store.Driver = "boltdb"
-	case "mysql":
+	conf.Store.Driver = tenv
+	if tenv == "boltdb" {
+	} else if tenv == config.Mysql {
 		conf.Store.Port = 3306
 		conf.Store.User = "root"
 		conf.Store.Password = ""
-	case "aerospike":
+	} else if tenv == config.Postgres {
+		conf.Store.Port = 5432
+		conf.Store.User = "postgres"
+		conf.Store.Password = "mysecretpassword"
+	} else if tenv == config.Redis {
+		conf.Store.User = ""
+		conf.Store.Password = ""
+		conf.Store.Port = 6379
+	} else if tenv == config.Aerospike {
 		conf.Store.User = "admin"
 		conf.Store.Password = "admin"
 		conf.Store.Port = 3000
@@ -56,21 +60,16 @@ func TestMain(m *testing.M) {
 		conf.Store.MaxIdleConns = 20
 		conf.Store.AerospikeNamespace = "test"
 		conf.Store.AerospikeSeedSrv = "10.211.55.200:3000"
-	case "postgres":
-		conf.Store.Host = "10.0.0.101"
-		conf.Store.Port = 5432
-		conf.Store.User = "postgres"
-		conf.Store.Password = "trust"
-		conf.Store.Db = "dtm"
 
-	default:
-		conf.Store.User = ""
-		conf.Store.Password = ""
-		conf.Store.Port = 6379
+		busi.BusiConf.Driver = config.Aerospike
+		busi.BusiConf.User = conf.Store.User
+		busi.BusiConf.Password = conf.Store.Password
+		busi.BusiConf.Port = conf.Store.Port
+		busi.BusiConf.Host = "10.211.55.200"
 	}
-
-
+	conf.Store.Db = ""
 	registry.WaitStoreUp()
+
 	dtmsvr.PopulateDB(false)
 	conf.Store.Db = "dtm" // after populateDB, set current db to dtm
 	if tenv == "postgres" {
