@@ -41,8 +41,8 @@ func main() {
 			dtmcli.SetCurrentDBType(busi.BusiConf.Driver)
 			svr.PrepareBenchDB()
 		}
-		busi.PopulateDB(false)
-	} else if os.Args[1] == "redis" || os.Args[1] == "boltdb" {
+		busi.PopulateDB(false, &busi.BusiConf)
+	} else if os.Args[1] == "redis" || os.Args[1] == "boltdb" || os.Args[1] == "aerospike" {
 
 	} else {
 		hintAndExit()
