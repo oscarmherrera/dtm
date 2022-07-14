@@ -218,14 +218,21 @@ func init() {
 				return bb.MongoCall(MongoGet(), func(sc mongo.SessionContext) error {
 					return SagaMongoAdjustBalance(sc, sc.Client(), TransOutUID, -req.Amount, "")
 				})
-			}
+			} else if req.Store == Aerospike {
+				client := aerospikeGet()
+				defer aerospikePut(client)
 
+				return bb.AerospikeCall(client, func() error {
+					return SagaAerospikeAdjustBalance(client, TransOutUID, -req.Amount, "")
+				})
+			}
 			return bb.CallWithDB(pdbGet(), func(tx *sql.Tx) error {
 				return tccAdjustTrading(tx, TransOutUID, -req.Amount)
 			})
 		}))
+
 		app.POST(BusiAPI+"/TccBTransOutConfirm", dtmutil.WrapHandler(func(c *gin.Context) interface{} {
-			if reqFrom(c).Store == Redis || reqFrom(c).Store == Mongo {
+			if reqFrom(c).Store == Redis || reqFrom(c).Store == Mongo || reqFrom(c).Store == Aerospike {
 				return nil
 			}
 			return MustBarrierFromGin(c).CallWithDB(pdbGet(), func(tx *sql.Tx) error {

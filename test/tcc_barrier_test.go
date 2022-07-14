@@ -23,6 +23,7 @@ import (
 
 func TestTccBarrierNormal(t *testing.T) {
 	req := busi.GenReqHTTP(30, false, false)
+	req.Store = busi.BusiConf.Driver
 	gid := dtmimp.GetFuncName()
 	err := dtmcli.TccGlobalTransaction(DtmServer, gid, func(tcc *dtmcli.Tcc) (*resty.Response, error) {
 		_, err := tcc.CallBranch(req, Busi+"/TccBTransOutTry", Busi+"/TccBTransOutConfirm", Busi+"/TccBTransOutCancel")
@@ -37,6 +38,7 @@ func TestTccBarrierNormal(t *testing.T) {
 
 func TestTccBarrierRollback(t *testing.T) {
 	req := busi.GenReqHTTP(30, false, true)
+	req.Store = busi.BusiConf.Driver
 	gid := dtmimp.GetFuncName()
 	err := dtmcli.TccGlobalTransaction(DtmServer, gid, func(tcc *dtmcli.Tcc) (*resty.Response, error) {
 		_, err := tcc.CallBranch(req, Busi+"/TccBTransOutTry", Busi+"/TccBTransOutConfirm", Busi+"/TccBTransOutCancel")
@@ -60,6 +62,11 @@ func TestTccBarrierDisorderMongo(t *testing.T) {
 func TestTccBarrierDisorderRedis(t *testing.T) {
 	busi.SetRedisBothAccount(200, 200)
 	runTestTccBarrierDisorder(t, "redis")
+}
+
+func TestTccBarrierDisorderAerospike(t *testing.T) {
+	busi.SetAerospikeBothAccount(200, 200)
+	runTestTccBarrierDisorder(t, "aerospike")
 }
 
 func runTestTccBarrierDisorder(t *testing.T, store string) {
